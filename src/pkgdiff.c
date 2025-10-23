@@ -17,15 +17,34 @@
 #define C_MAGENTA CSI "35m"
 #define C_CYAN   CSI "36m"
 
+static FILE *open_art_file(void) {
+    const char *env = getenv("PKGDIFF_ART");
+    if (env && *env) {
+        FILE *f = fopen(env, "rb");
+        if (f) return f;
+    }
+    const char *candidates[] = {
+        "picture.txt",
+        "/usr/share/libpkgdiff/picture.txt",
+        "/usr/local/share/libpkgdiff/picture.txt",
+        NULL
+    };
+    for (int i = 0; candidates[i]; ++i) {
+        FILE *f = fopen(candidates[i], "rb");
+        if (f) return f;
+    }
+    return NULL;
+}
+
 static void wait_and_show_braille(void) {
     printf(C_BOLD C_CYAN "\nlibpgkdiff — Alt Package Comparator (interactive mode)" C_RESET "\n");
     printf("\nPlease maximize your terminal window, then press Enter to continue...");
     fflush(stdout);
     char buf[8];
     fgets(buf, sizeof(buf), stdin);
-    FILE *pf = fopen("picture.txt", "rb");
+    FILE *pf = open_art_file();
     if (!pf) {
-        printf("\n" C_YELLOW "(Art file 'picture.txt' not found. Continuing...)" C_RESET "\n\n");
+        printf("\n" C_YELLOW "(Art file not found. Set PKGDIFF_ART=/path/to/picture.txt to override.)" C_RESET "\n\n");
         return;
     }
     printf("\n");
