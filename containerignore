@@ -1,0 +1,14 @@
+*.o
+*.so
+compare-cli
+build/
+dist/
+.git
+.gitignore
+.DS_Store
+tmp/
+**/__pycache__/
+*.zip
+*.tar
+*.tar.gz
+*.log
