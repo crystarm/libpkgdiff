@@ -1,13 +1,11 @@
 CC = gcc
-CFLAGS = -fPIC -Iinclude -Wall -Wextra
+CFLAGS = -fPIC -Iinclude -Wall -Wextra -O2
 LDFLAGS = -shared
 TARGET_LIB = libpkgdiff.so
 TARGET_CLI = compare-cli
-
 SRC_LIB = src/pkgdiff.c
 SRC_CLI = src/main.c
 OBJ_LIB = pkgdiff.o
-
 PREFIX ?= /usr/local
 
 all: $(TARGET_LIB) $(TARGET_CLI)
@@ -21,7 +19,7 @@ $(TARGET_CLI): $(SRC_CLI) $(TARGET_LIB)
 
 install:
 	install -D -m 0755 $(TARGET_LIB) $(PREFIX)/lib/$(TARGET_LIB)
-	install -D -m 0755 $(TARGET_CLI) $(PREFIX)/bin/$(TARGET_CLI)
+	install -D -m 0755 $(TARGET_CLI) $(PREFIX)/bin/${TARGET_CLI}
 	ldconfig
 
 clean:
