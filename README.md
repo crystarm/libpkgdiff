@@ -1,98 +1,196 @@
-# Alt Package Comparator (libpkgdiff + CLI)
+# libpkgdiff (CLI: `pkgdiff`)
 
-A small C/C++ utility that compares **binary package** sets between two ALT Linux branches
-(default: `p11` vs `sisyphus`). It fetches JSON from the public ALT API, parses it, shows
-human‑readable previews in the terminal, and can save full JSON lists to files.
+Compare **binary package lists** between ALT Linux branches (default: `p11` ↔ `sisyphus`).  
+Fetches JSON from the official ALT API, parses it, shows short **human‑readable previews** in the terminal, and can save **full JSON** lists to files.
 
 - Library: `libpkgdiff.so`
-- CLI: `compare-cli`
+- CLI: **`pkgdiff`**
 - Dependencies: `libcurl` (HTTP), `jansson` (JSON)
 
+---
+
 ## Features
-- Fetch package lists from `rdb.altlinux.org`.
-- **Filter by architecture** via `--arch` (e.g. only `x86_64`).
-- Show 10‑item previews (one line per package) of unique packages:
+
+- Pull package lists from `rdb.altlinux.org` (REST API).
+- **Architecture filter** via `--arch` (e.g. only `x86_64`).
+- Show **10‑item previews** (one package per line) of unique packages:
   - present only in `p11` (not in `sisyphus`)
   - present only in `sisyphus` (not in `p11`)
-- Optionally save **full JSON** lists:
+- Optionally save full unique lists as JSON:
   - `p11_only.json`
   - `sisyphus_only.json`
-- Simple, readable TUI: ASCII frames + colored status lines.
+- Minimal, readable TUI: ASCII frames + colored status lines.
+- Greeting art (ASCII/Braille) loaded from a file (see **Environment**).
 
-## Requirements
+---
 
-### Debian/Ubuntu
+## Quick start (RPM on ALT Linux)
+
+If you have the RPM package (recommended for reviewers):
+
+```bash
+sudo apt-get install -y ./libpkgdiff-<version>.x86_64.rpm
+pkgdiff               # run
+pkgdiff --arch x86_64 # only one architecture
+```
+
+The package installs:
+- `/usr/bin/pkgdiff` (CLI)
+- `/usr/lib64/libpkgdiff.so` (library)
+- `/usr/share/libpkgdiff/picture.txt` (optional greeting art, if packaged)
+
+Runtime dependencies (libcurl, jansson, …) are resolved automatically by ALT’s auto‑requires when installing the RPM.
+
+---
+
+## Build from source
+
+### Requirements
+
+**ALT Linux (inside VM or bare‑metal):**
+```bash
+sudo apt-get update
+sudo apt-get install -y gcc make libcurl-devel pkgconfig(jansson) ca-certificates
+```
+
+**Debian/Ubuntu:**
 ```bash
 sudo apt update
 sudo apt install -y build-essential libcurl4-openssl-dev libjansson-dev
 ```
 
-### ALT Linux (inside VM or container)
-```bash
-sudo apt-get update
-sudo apt-get install -y gcc make libcurl-devel libjansson-devel
-```
-
-## Build
+### Build
 ```bash
 make clean && make
+# run from build dir
+LD_LIBRARY_PATH=. ./compare-cli
+LD_LIBRARY_PATH=. ./compare-cli --arch x86_64
 ```
-This produces:
-- `libpkgdiff.so`
-- `compare-cli` (linked against the shared library)
 
-> If running from the build folder, set runtime lib path:
-> ```bash
-> LD_LIBRARY_PATH=. ./compare-cli
-> ```
+### System‑wide install (optional)
+```bash
+sudo make install PREFIX=/usr
+sudo ldconfig
+pkgdiff --arch x86_64   # now available globally
+```
+
+> The CLI binary is installed as **`/usr/bin/pkgdiff`**.
+
+---
+
+## Podman (containerized build & run)
+
+Multi‑stage image (Debian base) that compiles the project and runs the CLI.
+
+```bash
+# in project root (Containerfile present)
+podman build -t altpkgdiff:dev -f Containerfile .
+
+# Run with your working dir mounted (so JSON files are saved on host)
+podman run --rm -it -v "$PWD":/work altpkgdiff:dev
+podman run --rm -it -v "$PWD":/work altpkgdiff:dev --arch x86_64
+```
+
+If you use the provided helpers:
+```bash
+./podman-build.sh
+./podman-run.sh --arch aarch64
+```
+
+---
+
+## QEMU/KVM + ALT VM (used for testing)
+
+1) On the host (Debian), install QEMU/KVM and create a VM with ALT p11.  
+2) Inside ALT VM install deps:  
+   `sudo apt-get install -y gcc make libcurl-devel pkgconfig(jansson)`  
+3) Copy the project into VM (e.g. `rsync` over SSH with port‑forwarding) and build.  
+4) Run `pkgdiff` (or `LD_LIBRARY_PATH=. ./compare-cli` from the build dir).
+
+This is how the solution was validated.
+
+---
 
 ## Usage
 
-Basic:
+```bash
+pkgdiff                # interactive, default: p11 vs sisyphus
+pkgdiff --arch x86_64  # compare only x86_64 packages
+
+# From the build directory (without make install):
+LD_LIBRARY_PATH=. ./compare-cli --arch aarch64
+```
+
+What you’ll see:
+1. Greeting and optional art (press Enter to continue).
+2. For each branch:
+   - “Connecting to rdb.altlinux.org”
+   - `Endpoint: GET /api/export/branch_binary_packages/<branch>`
+   - “Requesting branch list…”
+   - “✔ Download complete” + size
+   - “✔ Looks like valid JSON”
+3. Totals:
+   ```
+   Fetched NNNNN packages from branch1 (p11)
+   Fetched MMMMM packages from branch2 (sisyphus)
+   ```
+4. Prompts:
+   - Show 10‑item previews? `[y/N]` (one line per package)
+   - Save full unique lists? `[y/N]` → `p11_only.json`, `sisyphus_only.json`
+
+> Full lists are large; saving can take noticeable time.
+
+---
+
+## CLI options
+
+```
+--arch <name>    Filter by architecture (e.g. x86_64, aarch64). Exact match.
+-h, --help       Show brief usage.
+```
+
+Branches are currently fixed to `p11` and `sisyphus` (per test task).
+
+---
+
+## Environment
+
+```
+PKGDIFF_ART=/path/to/picture.txt
+```
+If set, the greeting art is loaded from this path. Otherwise the program tries:
+1) `./picture.txt` (current directory)  
+2) `/usr/share/libpkgdiff/picture.txt`  
+3) `/usr/local/share/libpkgdiff/picture.txt`  
+
+If nothing is found, the program continues without art.
+
+---
+
+## Troubleshooting
+
+**`error while loading shared libraries: libpkgdiff.so`**  
+Run from the build dir with:
 ```bash
 LD_LIBRARY_PATH=. ./compare-cli
 ```
-
-With architecture filter (`--arch`):
+or install system‑wide:
 ```bash
-LD_LIBRARY_PATH=. ./compare-cli --arch x86_64
-LD_LIBRARY_PATH=. ./compare-cli --arch aarch64
-```
-What `--arch` does:
-- Only packages with the exact `arch` (e.g. `x86_64`) are considered during indexing and comparison.
-- Both previews and saved JSON lists will contain **only that architecture**.
-
-Help:
-```bash
-./compare-cli --help
+sudo make install PREFIX=/usr
+sudo ldconfig
+pkgdiff
 ```
 
-## What you’ll see
+**Network/API issues**  
+Temporary network or API hiccups will be shown in red; re‑run later.
 
-1) Greeting and (optional) ASCII art from `picture.txt`.
-2) For **each branch** (e.g. `p11`, then `sisyphus`):
-   - A framed line like `Connecting to rdb.altlinux.org`
-   - `Endpoint: GET /api/export/branch_binary_packages/<branch>`
-   - `Requesting branch list...`
-   - `✔ Download complete`
-   - `• Received XX.XX MB for branch '<branch>'`
-   - `✔ Looks like valid JSON`
-3) After parsing:
-```
-Fetched NNNNN packages from branch1 (p11)
-Fetched MMMMM packages from branch2 (sisyphus)
-```
-4) Prompts:
-- Show 10‑item previews? `[y/N]`
-- Save full unique lists? `[y/N]`
+**Container shows no output**  
+Remember the program waits for Enter after the greeting prompt.
 
-Saved files (if confirmed):
-- `p11_only.json`
-- `sisyphus_only.json`
+---
 
-> Note: Saving full lists can take time (they are large).
+## Project structure
 
-## Project Structure
 ```
 .
 ├─ include/
@@ -100,24 +198,14 @@ Saved files (if confirmed):
 ├─ src/
 │  ├─ pkgdiff.c
 │  └─ main.c
-├─ picture.txt         # optional ASCII/Braille art
-└─ Makefile
+├─ picture.txt        # optional greeting art
+├─ Makefile
+├─ Containerfile      # for Podman
+├─ podman-*.sh        # helper scripts
+└─ README.md
 ```
 
-## Troubleshooting
-
-**`./compare-cli: error while loading shared libraries: libpkgdiff.so: cannot open shared object file`**  
-Run with explicit library path or install the library:
-```bash
-LD_LIBRARY_PATH=. ./compare-cli
-# or install system-wide
-sudo make install
-sudo ldconfig
-compare-cli
-```
-
-**Network issues**  
-If the API is temporarily unreachable, you’ll see a red failure line. Re-run later.
+---
 
 ## License
-MIT (or as required by your assignment).
+MIT
