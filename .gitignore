@@ -1,0 +1,12 @@
+# build artefacts
+*.o
+*.so
+compare-cli
+build/
+# RPM/packaging artefacts
+rpmbuild/
+*.rpm
+*.tar
+*.tar.gz
+# misc
+.DS_Store
