@@ -1,12 +1,18 @@
+cat >> .gitignore <<'EOF'
 # build artefacts
 *.o
 *.so
 compare-cli
+pkgdiff
 build/
-# RPM/packaging artefacts
+dist/
+
+# rpm
 rpmbuild/
 *.rpm
 *.tar
 *.tar.gz
-# misc
-.DS_Store
+
+# containers
+containerignore
+EOF
