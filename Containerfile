@@ -1,18 +1,31 @@
-# syntax=docker/dockerfile:1
-# Multi-stage build (Podman compatible)
-FROM debian:bookworm-slim AS build
-ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends     build-essential make ca-certificates     libcurl4-openssl-dev libjansson-dev   && rm -rf /var/lib/apt/lists/*
-WORKDIR /src
-COPY . /src
-RUN make clean && make && make install PREFIX=/usr/local
+# ---------- build stage ----------
+FROM alt:p11 AS build
 
-FROM debian:bookworm-slim AS runtime
-ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends     ca-certificates libcurl4 libjansson4   && rm -rf /var/lib/apt/lists/*
-COPY --from=build /usr/local/bin/compare-cli /usr/local/bin/compare-cli
-COPY --from=build /usr/local/lib/libpkgdiff.so /usr/local/lib/libpkgdiff.so
-COPY picture.txt /work/picture.txt
-ENV LD_LIBRARY_PATH=/usr/local/lib
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && \
+    apt-get install -y \
+      gcc make ca-certificates \
+      libcurl-devel \
+      "pkgconfig(jansson)" && \
+    rm -rf /var/lib/apt/lists/*
+
 WORKDIR /work
-ENTRYPOINT ["/usr/local/bin/compare-cli"]
+COPY . /work
+
+RUN make clean && make
+
+# ---------- runtime stage ----------
+FROM alt:p11 AS run
+RUN apt-get update && \
+    apt-get install -y \
+      ca-certificates \
+      libcurl \
+      jansson && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /work/compare-cli /usr/bin/pkgdiff
+COPY --from=build /work/libpkgdiff.so /usr/lib64/libpkgdiff.so
+COPY --from=build /work/picture.txt /usr/share/libpkgdiff/picture.txt
+
+ENV LD_LIBRARY_PATH=/usr/lib64
+ENTRYPOINT ["/usr/bin/pkgdiff"]
