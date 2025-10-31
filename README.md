@@ -7,7 +7,7 @@ Fetches JSON from the official ALT API, parses it, shows short **human‑readabl
 
 - Library: `libpkgdiff.so`
 - CLI: **`pkgdiff`**
-- Dependencies: `libcurl` (HTTP), `jansson` (JSON)
+- Dependencies: `libcurl-devel` (HTTP), `libjansson-devel` (JSON)
 
 ---
 
@@ -152,9 +152,7 @@ License:        MIT
 URL:            https://github.com/crystarm/libpkgdiff
 Source0:        %name-%version.tar.gz
 
-BuildRequires:  gcc, make
-BuildRequires:  pkgconfig(libcurl)
-BuildRequires:  pkgconfig(jansson)
+BuildRequires:  gcc, make, libcurl-devel, libjansson-devel
 
 %description
 Library + CLI to fetch package lists from rdb.altlinux.org and compare two branches
