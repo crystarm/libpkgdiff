@@ -110,8 +110,7 @@ If you prefer the provided scripts:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y rpm-build rpmdevtools gcc make \
-  "pkgconfig(libcurl)" "pkgconfig(jansson)"
+sudo apt-get install -y rpm-build rpmdevtools gcc make libcurl-devel libjansson-devel
 ```
 
 📚 [rpm-build on wiki.altlinux.org](https://www.altlinux.org/RPM#Сборка_RPM)
