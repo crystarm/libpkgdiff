@@ -193,16 +193,21 @@ Remember the program waits for Enter after the greeting prompt.
 
 ```
 .
-├─ include/
-│  └─ pkgdiff.h
-├─ src/
-│  ├─ pkgdiff.c
-│  └─ main.c
-├─ picture.txt        # optional greeting art
-├─ Makefile
-├─ Containerfile      # for Podman
-├─ podman-*.sh        # helper scripts
-└─ README.md
+├── Makefile
+├── README.md
+├── Containerfile
+├── picture.txt
+├── podman-build.sh
+├── podman-run.sh
+├── include/
+│   └── pkgdiff.h
+└── src/
+    ├── main.c
+    ├── ui.c
+    ├── net.c
+    ├── cmp.c
+    ├── u.h
+    └── u.c
 ```
 
 ---
