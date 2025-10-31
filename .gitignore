@@ -1,4 +1,7 @@
 cat >> .gitignore <<'EOF'
+
+*.json
+
 # build artefacts
 *.o
 *.so
