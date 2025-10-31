@@ -1,5 +1,7 @@
 # libpkgdiff (CLI: `pkgdiff`)
 
+> **CLI name:** the build now produces a binary named `pkgdiff` (previously `compare-cli`). Update your scripts if you used the old name.
+
 Compare **binary package lists** between ALT Linux branches (default: `p11` ↔ `sisyphus`).  
 Fetches JSON from the official ALT API, parses it, shows short **human‑readable previews** in the terminal, and can save **full JSON** lists to files.
 
@@ -78,9 +80,147 @@ pkgdiff --arch x86_64   # now available globally
 
 ---
 
+## Container (ALT p11 base)
+
+This repo uses an **ALT Linux p11** base image.
+
+~~~bash
+# Build
+podman build -t libpkgdiff:alt -f Containerfile
+
+# Run the CLI inside the container
+podman run --rm -it libpkgdiff:alt pkgdiff --help
+~~~
+
+If you prefer the provided scripts:
+~~~bash
+./podman-build.sh
+./podman-run.sh -- --help   # anything after -- is passed to pkgdiff
+~~~
+
+---
+
+## Build RPM (ALT Linux)
+
+> ✅ Tested on **ALT p11** (host or container). Produces native `.rpm` and `.src.rpm`.
+
+---
+
+### 1) Install build tools and development headers
+
+```bash
+sudo apt-get update
+sudo apt-get install -y rpm-build rpmdevtools gcc make \
+  "pkgconfig(libcurl)" "pkgconfig(jansson)"
+```
+
+📚 [rpm-build on wiki.altlinux.org](https://www.altlinux.org/RPM#Сборка_RPM)
+
+---
+
+### 2) Set up the RPM build tree
+
+```bash
+rpmdev-setuptree  # creates ~/rpmbuild/{SOURCES,SPECS,BUILD,RPMS,SRPMS}
+```
+
+📚 [rpmdevtools on wiki.altlinux.org](https://www.altlinux.org/Rpmdevtools)
+
+---
+
+### 3) Create versioned source tarball
+
+Pick a version (e.g. from git tag or manual), and create source archive:
+
+```bash
+VER=0.1.0
+git archive --format=tar --prefix=libpkgdiff-${VER}/ HEAD | gzip > ~/rpmbuild/SOURCES/libpkgdiff-${VER}.tar.gz
+```
+
+---
+
+### 4) Create SPEC file
+
+Save the following as `~/rpmbuild/SPECS/libpkgdiff.spec`:
+
+```spec
+Name:           libpkgdiff
+Version:        0.1.0
+Release:        alt1
+Summary:        Compare binary package lists between ALT Linux branches
+License:        MIT
+URL:            https://github.com/crystarm/libpkgdiff
+Source0:        %name-%version.tar.gz
+
+BuildRequires:  gcc, make
+BuildRequires:  pkgconfig(libcurl)
+BuildRequires:  pkgconfig(jansson)
+
+%description
+Library + CLI to fetch package lists from rdb.altlinux.org and compare two branches
+(e.g. p11 vs sisyphus), with optional architecture filtering.
+
+%prep
+%setup -q
+
+%build
+%make_build
+
+%install
+rm -rf %{buildroot}
+%make_install PREFIX=%{buildroot}%{_prefix}
+
+# Install CLI under the final name
+install -D -m 0755 compare-cli %{buildroot}%{_bindir}/pkgdiff
+
+# Ensure library is in the correct libdir
+if [ -f "%{buildroot}%{_prefix}/lib/libpkgdiff.so" ] && [ ! -f "%{buildroot}%{_libdir}/libpkgdiff.so" ]; then
+  install -D -m 0755 %{buildroot}%{_prefix}/lib/libpkgdiff.so %{buildroot}%{_libdir}/libpkgdiff.so
+  rm -f %{buildroot}%{_prefix}/lib/libpkgdiff.so
+fi
+
+# Optional greeting art
+if [ -f picture.txt ]; then
+  install -D -m 0644 picture.txt %{buildroot}%{_datadir}/libpkgdiff/picture.txt
+fi
+
+%post -p /sbin/ldconfig
+%postun -p /sbin/ldconfig
+
+%files
+%doc README.md
+%{_bindir}/pkgdiff
+%{_libdir}/libpkgdiff.so
+%{_datadir}/libpkgdiff/picture.txt
+
+%changelog
+* Fri Oct 31 2025 Packager <packager@example.org> 0.1.0-alt1
+- Initial build
+```
+
+> ⚠️ Don’t forget to change `Version:` and `.tar.gz` name if you use a different version.
+
+---
+
+### 5) Build the package
+
+```bash
+rpmbuild -ba ~/rpmbuild/SPECS/libpkgdiff.spec
+```
+
+📚 [RPM building tutorial](https://www.altlinux.org/RPM#Сборка_RPM)
+
+Resulting files:
+- Binary RPM: `~/rpmbuild/RPMS/$(uname -m)/libpkgdiff-*.rpm`
+- Source RPM: `~/rpmbuild/SRPMS/libpkgdiff-*.src.rpm`
+
+---
+
+💡 **Tip**: You can perform the full build process inside the ALT container (see below) to avoid installing build tools on your host system.
+
 ## Podman (containerized build & run)
 
-Multi‑stage image (Debian base) that compiles the project and runs the CLI.
+Multi‑stage image based on **ALT Linux p11** that compiles the project and runs the CLI.
 
 ```bash
 # in project root (Containerfile present)
@@ -190,6 +330,32 @@ Remember the program waits for Enter after the greeting prompt.
 ---
 
 ## Project structure
+## RPM package
+
+To build an RPM package for ALT Linux:
+
+```bash
+make rpm
+```
+
+This will generate a binary RPM and a source RPM inside the `build/` directory:
+
+```
+build/
+├─ RPMS/x86_64/libpkgdiff-<version>.x86_64.rpm
+├─ SRPMS/libpkgdiff-<version>.src.rpm
+```
+
+To install the resulting package on ALT Linux, use:
+
+```bash
+sudo rpm -Uvh ./build/RPMS/x86_64/libpkgdiff-<version>.x86_64.rpm
+```
+
+> This is the recommended way to install a local RPM on ALT Linux.  
+> See: https://www.altlinux.org/RPM#Установка_пакета
+
+Note: If your system is missing dependencies, install them using `apt-get`, `apt-install`, or via `rpm -Uvh` + `apt-get -f install` if needed.
 
 ```
 .
