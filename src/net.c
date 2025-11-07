@@ -7,6 +7,63 @@
 #include "pkgdiff.h"
 #include "u.h"
 
+/* ------------------------------------------------------------------------- */
+/* Simple in-process cache so we don't download the same JSON twice          */
+/* ------------------------------------------------------------------------- */
+struct CachedJson {
+    char  branch[64];
+    char *data; /* NUL-terminated JSON text (heap owned by cache) */
+};
+static struct CachedJson s_cache[8];
+static int s_cache_count = 0;
+
+static char *cache_get_copy(const char *branch) {
+    if (!branch || !*branch) return NULL;
+    for (int i = 0; i < s_cache_count; ++i) {
+        if (strcmp(s_cache[i].branch, branch) == 0 && s_cache[i].data) {
+            char msg[192];
+            snprintf(msg, sizeof(msg),
+                     "Using cached JSON for branch '%s' (%.2f MB)",
+                     branch, (double)strlen(s_cache[i].data) / 1048576.0);
+            note(msg);
+            size_t L = strlen(s_cache[i].data);
+            char *copy = (char*)malloc(L + 1);
+            if (copy) memcpy(copy, s_cache[i].data, L + 1);
+            return copy;
+        }
+    }
+    return NULL;
+}
+
+static void cache_put(const char *branch, const char *json_text) {
+    if (!branch || !*branch || !json_text) return;
+    /* try to update existing */
+    for (int i = 0; i < s_cache_count; ++i) {
+        if (strcmp(s_cache[i].branch, branch) == 0) {
+            free(s_cache[i].data);
+            s_cache[i].data = strdup(json_text);
+            return;
+        }
+    }
+    /* append or evict oldest if full */
+    if (s_cache_count < (int)(sizeof(s_cache)/sizeof(s_cache[0]))) {
+        strncpy(s_cache[s_cache_count].branch, branch,
+                sizeof(s_cache[s_cache_count].branch) - 1);
+        s_cache[s_cache_count].branch[sizeof(s_cache[s_cache_count].branch) - 1] = '\0';
+        s_cache[s_cache_count].data = strdup(json_text);
+        ++s_cache_count;
+    } else {
+        /* simple FIFO eviction */
+        free(s_cache[0].data);
+        for (int j = 1; j < s_cache_count; ++j) s_cache[j-1] = s_cache[j];
+        strncpy(s_cache[s_cache_count-1].branch, branch,
+                sizeof(s_cache[s_cache_count-1].branch) - 1);
+        s_cache[s_cache_count-1].branch[sizeof(s_cache[s_cache_count-1].branch) - 1] = '\0';
+        s_cache[s_cache_count-1].data = strdup(json_text);
+    }
+}
+
+
 
 
 static size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp) {
@@ -27,6 +84,13 @@ static size_t write_callback(void *contents, size_t size, size_t nmemb, void *us
 
 
 char *fetch_packages_json(const char *branch) {
+    /* First try in-process cache */
+    {
+        char *cached = cache_get_copy(branch);
+        if (cached) {
+            return cached;
+        }
+    }
     if (!branch) {
         fail("fetch_packages_json: branch is NULL");
         return NULL;
@@ -78,6 +142,8 @@ char *fetch_packages_json(const char *branch) {
     } else {
         ok("Looks like valid JSON");
     }
+    cache_put(branch, chunk.data);
     return chunk.data;
 }
+
 

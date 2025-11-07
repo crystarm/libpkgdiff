@@ -132,3 +132,15 @@
     return strcmp(arch_filter, arch) == 0;
 }
 
+
+
+void log_parsing_start(void)  { note("Parsing JSON..."); }
+void log_parsing_done(void)   { ok("JSON parsed"); }
+void log_indexing_start(void) { note("Indexing packages..."); }
+void log_indexing_done(void)  { ok("Index built"); }
+void log_fetched_count(const char *which, size_t n, const char *branch) {
+    printf(C_ACCENT "Fetched %zu packages from %s (%s)\n" C_RESET, n, which, branch ? branch : "?");
+    fflush(stdout);
+}
+
+
