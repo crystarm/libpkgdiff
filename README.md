@@ -377,3 +377,50 @@ Note: If your system is missing dependencies, install them using `apt-get`, `apt
 
 ## License
 MIT
+
+## Common packages (p11 ∩ sisyphus) — Interactive mode
+
+This CLI now also supports listing packages that are **present in both branches** and printing their versions side-by-side.
+
+**How to run**
+1. Build as usual:
+   ```bash
+   make
+   ./pkgdiff              # optionally add --arch x86_64
+   ```
+2. In the interactive menu that appears after the splash screen, choose:
+   ```
+   Select operation:
+     1) Unique packages per branch (original diff)
+     2) Common packages with versions (intersection)
+   [1/2]:
+   ```
+   Pick `2` to compute the intersection.
+
+**What you’ll see**
+- A **preview of the first 10** common packages is printed.
+- Each line shows `name [arch]` followed by versions for `p11` and `sisyphus`.
+- Version strings include `epoch` when present, as `epoch:version-release`; otherwise `version-release`.
+
+Example preview:
+```
+• zstd [x86_64] versions: (p11: 1.5.6-1) (sisyphus: 1.5.6-2)
+• barutils [i586] versions: (p11: 0.9-2) (sisyphus: 0.9-2)  [=]
+```
+
+**Saving to JSON**
+After the preview, the CLI **asks whether to save the full common set** to a file. If you answer `y`, you can enter a path; otherwise a default like `common-p11-sisyphus.json` is used.
+
+The saved JSON is a list of objects with the following shape:
+```json
+[
+  {
+    "name": "zstd",
+    "arch": "x86_64",
+    "p11": "1.5.6-1",
+    "sisyphus": "1.5.6-2",
+    "different": true
+  }
+]
+```
+`different` is `true` when formatted versions differ between the branches, and `false` when they are equal.

@@ -31,7 +31,7 @@ static FILE *open_art_file(void) {
 
 
 static void wait_and_show_braille(void) {
-    printf(C_BOLD C_CYAN "\nlibpgkdiff — Alt Package Comparator (interactive mode)" C_RESET "\n");
+    printf(C_BOLD C_ACCENT "\nlibpkgdiff — ALT Package Comparator (interactive mode)" C_RESET "\n");
     printf("\nPlease maximize your terminal window, then press Enter to continue...");
     fflush(stdout);
     char buf[8];
