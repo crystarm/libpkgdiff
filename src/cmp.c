@@ -155,8 +155,17 @@ size_t len1 = json_array_size(packages1), filt1 = 0;for (size_t i = 0; i < len1;
             }
         }
 
-        if (write_full_unique_lists(file1, file2, map1, map2) == 0) {
-            printf(C_GREEN "Saved: %s and %s\n" C_RESET, file1, file2);
+        /* Resolve default save directory for results */
+            char results_dir[512]; pkgdiff_get_results_dir(results_dir, sizeof(results_dir));
+            ensure_dir_all(results_dir, 0700);
+            char f1_final[768]; char f2_final[768];
+            if (strchr(file1, '/')) { snprintf(f1_final, sizeof(f1_final), "%s", file1); }
+            else { join_path(f1_final, sizeof(f1_final), results_dir, file1); }
+            if (strchr(file2, '/')) { snprintf(f2_final, sizeof(f2_final), "%s", file2); }
+            else { join_path(f2_final, sizeof(f2_final), results_dir, file2); }
+
+            if (write_full_unique_lists(f1_final, f2_final, map1, map2) == 0) {
+            printf(C_GREEN "Saved: %s and %s\n" C_RESET, f1_final, f2_final);
             if (arch_filter && *arch_filter) {
                 printf("(Both files contain only '%s' architecture entries)\n", arch_filter);
             }
@@ -373,6 +382,18 @@ if (pathbuf[0] == '\0') {
     pathbuf[sizeof(pathbuf)-1] = '\0';
 }
 do_save = 1;
+        }
+    }
+
+    /* Normalize save path: if it's just a filename (no '/'), place into results dir */
+    if (do_save) {
+        if (!strchr(pathbuf, '/')) {
+            char results_dir[512]; pkgdiff_get_results_dir(results_dir, sizeof(results_dir));
+            ensure_dir_all(results_dir, 0700);
+            char tmpbuf[1024];
+            join_path(tmpbuf, sizeof(tmpbuf), results_dir, pathbuf);
+            strncpy(pathbuf, tmpbuf, sizeof(pathbuf)-1);
+            pathbuf[sizeof(pathbuf)-1] = '\0';
         }
     }
 

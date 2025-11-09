@@ -263,3 +263,92 @@ void log_fetched_count(const char *which, size_t n, const char *branch) {
     printf("(" C_MAGENTA "%s" C_RESET ": %s%s%s)", branch2, differ ? C_YELLOW : C_GREEN, s2, C_RESET);
 putchar('\n');
  }
+
+
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+/* Safe string helpers */
+static void safe_strcpy(char *dst, size_t n, const char *src) {
+    if (!dst || n == 0) return;
+    if (!src) { dst[0] = '\0'; return; }
+    snprintf(dst, n, "%s", src);
+    dst[n-1] = '\0';
+}
+
+void join_path(char *dst, size_t dst_sz, const char *dir, const char *name) {
+    if (!dst || dst_sz == 0) return;
+    if (!dir || !*dir) { safe_strcpy(dst, dst_sz, name ? name : ""); return; }
+    if (!name || !*name) { safe_strcpy(dst, dst_sz, dir); return; }
+    size_t dlen = strlen(dir);
+    int need_slash = (dlen > 0 && dir[dlen-1] != '/');
+    snprintf(dst, dst_sz, need_slash ? "%s/%s" : "%s%s", dir, name);
+    dst[dst_sz-1] = '\0';
+}
+
+static int ensure_dir_one(const char *path, int mode) {
+    struct stat st;
+    if (stat(path, &st) == 0) {
+        return S_ISDIR(st.st_mode) ? 0 : -1;
+    }
+    #ifdef _WIN32
+    return _mkdir(path);
+    #else
+    return mkdir(path, (mode_t)mode);
+    #endif
+}
+
+int ensure_dir_all(const char *path, int mode) {
+    if (!path || !*path) return -1;
+    char tmp[1024];
+    size_t n = strlen(path);
+    if (n >= sizeof(tmp)) return -1;
+    strcpy(tmp, path);
+    /* strip trailing slash */
+    if (n > 1 && tmp[n-1]=='/') tmp[n-1] = '\0';
+    char *p = tmp;
+    if (*p == '/') ++p; /* absolute path: skip first slash */
+    for (; *p; ++p) {
+        if (*p == '/') {
+            *p = '\0';
+            if (ensure_dir_one(tmp, mode) != 0) return -1;
+            *p = '/';
+        }
+    }
+    return ensure_dir_one(tmp, mode);
+}
+
+/* Resolve $XDG dirs or HOME fallbacks. Allow overrides via env:
+   LIBPKGDIFF_SOURCES_DIR and LIBPKGDIFF_RESULTS_DIR. */
+
+void pkgdiff_get_sources_dir(char *out, size_t out_sz) {
+    const char *override = getenv("LIBPKGDIFF_SOURCES_DIR");
+    if (override && *override) { safe_strcpy(out, out_sz, override); return; }
+
+    const char *xdg = getenv("XDG_CACHE_HOME");
+    if (xdg && *xdg) {
+        snprintf(out, out_sz, "%s/libpkgdiff/sources", xdg);
+    } else {
+        const char *home = getenv("HOME");
+        if (home && *home) snprintf(out, out_sz, "%s/.cache/libpkgdiff/sources", home);
+        else snprintf(out, out_sz, ".pkgdiff-cache/sources");
+    }
+    out[out_sz-1] = '\0';
+}
+
+void pkgdiff_get_results_dir(char *out, size_t out_sz) {
+    const char *override = getenv("LIBPKGDIFF_RESULTS_DIR");
+    if (override && *override) { safe_strcpy(out, out_sz, override); return; }
+
+    const char *xdg = getenv("XDG_DATA_HOME");
+    if (xdg && *xdg) {
+        snprintf(out, out_sz, "%s/libpkgdiff/results", xdg);
+    } else {
+        const char *home = getenv("HOME");
+        if (home && *home) snprintf(out, out_sz, "%s/.local/share/libpkgdiff/results", home);
+        else snprintf(out, out_sz, "./libpkgdiff-results");
+    }
+    out[out_sz-1] = '\0';
+}
+

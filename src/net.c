@@ -6,6 +6,7 @@
 #include <strings.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <curl/curl.h>
 
 #include "pkgdiff.h"
@@ -158,142 +159,157 @@ int n2 = snprintf(meta_path, meta_sz, "%s/%s.meta", dir, branch);
 
 
                         /* ---------------- public function ----------------------------------------- */
-                        char *fetch_packages_json(const char *branch) {
-                            /* in-proc cache */
-                            {
-                                char *cached = cache_get_copy(branch);
-                                if (cached) return cached;
-                            }
-                            if (!branch) { fail("fetch_packages_json: branch is NULL"); return NULL; }
+                        
+char *fetch_packages_json(const char *branch) {
+    if (!branch) { fail("fetch_packages_json: branch is NULL"); return NULL; }
 
-                            /* disk cache paths & validators */
-                            char json_path[512], meta_path[512];
-                            cache_paths(branch, json_path, sizeof(json_path), meta_path, sizeof(meta_path));
+    /* In-process cache */
+    {
+        char *cached = cache_get_copy(branch);
+        if (cached) return cached;
+    }
 
-                            char etag[256] = {0}, last_mod[256] = {0};
-                            {
-                                char *meta = NULL; size_t mlen = 0;
-                                if (read_file_to_buf(meta_path, &meta, &mlen) == 0 && meta) {
-                                    char *save = NULL;
-                                    for (char *line = strtok_r(meta, "\n", &save);
-                                         line; line = strtok_r(NULL, "\n", &save)) {
-                                        if (strncasecmp(line, "ETag:", 5) == 0) {
-                                            const char *v = line + 5; while (*v==' '||*v=='\t') ++v;
-                                            strncpy(etag, v, sizeof(etag)-1);
-                                        } else if (strncasecmp(line, "Last-Modified:", 14) == 0) {
-                                            const char *v = line + 14; while (*v==' '||*v=='\t') ++v;
-                                            strncpy(last_mod, v, sizeof(last_mod)-1);
-                                        }
-                                         }
-                                         free(meta);
-                                }
-                            }
+    /* Resolve disk cache paths (sources dir) */
+    char json_path[512], meta_path[512];
+    cache_paths(branch, json_path, sizeof(json_path), meta_path, sizeof(meta_path));
 
-                            CURL *curl = NULL;
-                            struct MemoryBuffer chunk = (struct MemoryBuffer){0};
-                            struct ResponseHeaders rh = {{0},{0}};
-                            struct curl_slist *hdrs = NULL;
+    /* TTL: 2 hours */
+    struct stat st;
+    if (stat(json_path, &st) == 0) {
+        time_t now = time(NULL);
+        if (now != (time_t)-1 && (now - st.st_mtime) < 2*60*60) {
+            char *buf = NULL; size_t blen = 0;
+            if (read_file_to_buf(json_path, &buf, &blen) == 0 && buf) {
+                note("Using cached sources (younger than 2 hours)");
+                cache_put(branch, buf);
+                return buf;
+            }
+        }
+    }
 
-                            curl_global_init(CURL_GLOBAL_DEFAULT);
-                            curl = curl_easy_init();
-                            if (!curl) { fail("curl initialization failed"); curl_global_cleanup(); goto try_disk_fallback; }
+    /* Prepare request */
+    char url[512];
+    snprintf(url, sizeof(url), "https://rdb.altlinux.org/api/export/branch_binary_packages/%s", branch);
 
-                            char headline[256];
-                            snprintf(headline, sizeof(headline), "Connecting to " C_GREEN "rdb.altlinux.org" C_RESET);
-                            print_tight_box(headline);
-                            char endpoint[512];
-                            snprintf(endpoint, sizeof(endpoint), "Endpoint: GET /api/export/branch_binary_packages/%s", branch);
-                            note(endpoint);
+    struct MemoryBuffer chunk = (struct MemoryBuffer){0};
+    struct ResponseHeaders rh = {{0},{0}};
+    struct curl_slist *hdrs = NULL;
+    CURL *curl = NULL;
+    CURLcode res;
+    long code = 0;
 
-                            char url[256];
-                            snprintf(url, sizeof(url), "https://rdb.altlinux.org/api/export/branch_binary_packages/%s", branch);
-                            curl_easy_setopt(curl, CURLOPT_URL, url);
-                            curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-                            curl_easy_setopt(curl, CURLOPT_USERAGENT, "altpkgdiff/1.9");
-                            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-                            curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
-                            curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, header_cb);
-                            curl_easy_setopt(curl, CURLOPT_HEADERDATA, (void *)&rh);
+    /* Conditional headers from meta */
+    char etag[256] = {0}, last_mod[256] = {0};
+    {
+        char *meta = NULL; size_t mlen = 0;
+        if (read_file_to_buf(meta_path, &meta, &mlen) == 0 && meta) {
+            char *save = NULL;
+            for (char *line = strtok_r(meta, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+                if (strncasecmp(line, "ETag:", 5) == 0) {
+                    const char *p = line + 5; while (*p==' '||*p=='\t') ++p;
+                    snprintf(etag, sizeof(etag), "%s", p);
+                } else if (strncasecmp(line, "Last-Modified:", 14) == 0) {
+                    const char *p = line + 14; while (*p==' '||*p=='\t') ++p;
+                    snprintf(last_mod, sizeof(last_mod), "%s", p);
+                }
+            }
+            free(meta);
+        }
+    }
 
-                            if (etag[0]) {
-                                char line[320]; snprintf(line, sizeof(line), "If-None-Match: %s", etag);
-                                hdrs = curl_slist_append(hdrs, line);
-                            }
-                            if (last_mod[0]) {
-                                char line[400]; snprintf(line, sizeof(line), "If-Modified-Since: %s", last_mod);
-                                hdrs = curl_slist_append(hdrs, line);
-                            }
-                            if (hdrs) curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hdrs);
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    curl = curl_easy_init();
+    if (!curl) { fail("curl initialization failed"); curl_global_cleanup(); goto try_disk_fallback; }
 
-                            note("Requesting branch list...");
-                            CURLcode res = curl_easy_perform(curl);
-                            long code = 0;
-                            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+    {
+        char headline[256];
+        snprintf(headline, sizeof(headline), "Connecting to " C_GREEN "rdb.altlinux.org" C_RESET);
+        print_tight_box(headline);
+        char endpoint[256];
+        snprintf(endpoint, sizeof(endpoint), "Endpoint: GET /api/export/branch_binary_packages/%s", branch);
+        note(endpoint);
+    }
 
-                            if (res == CURLE_OK && code == 304) {
-                                ok("Not modified (304) — using disk cache");
-                                curl_slist_free_all(hdrs); curl_easy_cleanup(curl); curl_global_cleanup();
-                                char *filedata = NULL; size_t flen = 0;
-                                if (read_file_to_buf(json_path, &filedata, &flen) == 0 && filedata) {
-                                    cache_put(branch, filedata);
-                                    return filedata;
-                                }
-                                warn("304 but cache file missing — refetch without validators");
-                                curl = curl_easy_init();
-                                if (!curl) goto try_disk_fallback;
-                                curl_easy_setopt(curl, CURLOPT_URL, url);
-                                curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-                                curl_easy_setopt(curl, CURLOPT_USERAGENT, "altpkgdiff/1.9");
-                                curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-                                curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
-                                curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, header_cb);
-                                curl_easy_setopt(curl, CURLOPT_HEADERDATA, (void *)&rh);
-                                res = curl_easy_perform(curl);
-                                curl_easy_cleanup(curl);
-                                curl_global_cleanup();
-                            } else {
-                                curl_slist_free_all(hdrs);
-                                curl_easy_cleanup(curl);
-                                curl_global_cleanup();
-                            }
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "altpkgdiff/1.9");
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, header_cb);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, (void *)&rh);
 
-                            if (res == CURLE_OK && chunk.data) {
-                                ok("Download complete");
-                                char meta_buf[768] = {0};
-                                if (rh.etag[0] || rh.last_modified[0]) {
-                                    snprintf(meta_buf, sizeof(meta_buf),
-                                             "%s%s%s%s%s",
-                                             rh.etag[0] ? "ETag: " : "",
-                                             rh.etag[0] ? rh.etag : "",
-                                             (rh.etag[0] && rh.last_modified[0]) ? "\n" : "",
-                                             rh.last_modified[0] ? "Last-Modified: " : "",
-                                             rh.last_modified[0] ? rh.last_modified : "");
-                                    if (meta_buf[0]) write_text_file(meta_path, meta_buf);
-                                }
-                                write_text_file(json_path, chunk.data);
+    if (etag[0]) {
+        char b[320]; snprintf(b, sizeof(b), "If-None-Match: %s", etag);
+        hdrs = curl_slist_append(hdrs, b);
+    }
+    if (last_mod[0]) {
+        char b[360]; snprintf(b, sizeof(b), "If-Modified-Since: %s", last_mod);
+        hdrs = curl_slist_append(hdrs, b);
+    }
+    if (hdrs) curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hdrs);
 
-                                char msg[128];
-                                snprintf(msg, sizeof(msg), "Received %.2f MB for branch '%s'",
-                                         (double)chunk.size/1048576.0, branch);
-                                note(msg);
-                                note("Verifying JSON structure...");
-                                if (chunk.size == 0 || chunk.data[0] != '{') {
-                                    warn("Unexpected response format (not a JSON object)");
-                                } else {
-                                    ok("Looks like valid JSON");
-                                }
-                                cache_put(branch, chunk.data);
-                                return chunk.data; /* caller frees */
-                            }
+    note("Requesting branch list...");
+    res = curl_easy_perform(curl);
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
 
-                            try_disk_fallback:
-                            {
-                                char *filedata = NULL; size_t flen = 0;
-                                if (read_file_to_buf(json_path, &filedata, &flen) == 0 && filedata) {
-                                    warn("Network unavailable — using disk cache");
-                                    cache_put(branch, filedata);
-                                    return filedata;
-                                }
-                            }
-                            return NULL;
-                        }
+    if (res == CURLE_OK && code == 304) {
+        /* Not modified — load from disk */
+        char *filedata = NULL; size_t flen = 0;
+        if (read_file_to_buf(json_path, &filedata, &flen) == 0 && filedata) {
+            ok("Local cache is up to date (HTTP 304)");
+            cache_put(branch, filedata);
+            if (hdrs) curl_slist_free_all(hdrs);
+            curl_easy_cleanup(curl);
+            curl_global_cleanup();
+            return filedata;
+        }
+        /* fallthrough to try fresh download (but we already tried) */
+    }
+
+    if (res == CURLE_OK && chunk.data) {
+        /* Save updated meta */
+        if (rh.etag[0] || rh.last_modified[0]) {
+            char meta_buf[640] = {0};
+            snprintf(meta_buf, sizeof(meta_buf), "ETag: %s\nLast-Modified: %s\n",
+                     rh.etag[0] ? rh.etag : "",
+                     rh.last_modified[0] ? rh.last_modified : "");
+            if (meta_buf[0]) write_text_file(meta_path, meta_buf);
+        }
+        /* Save JSON */
+        write_text_file(json_path, chunk.data);
+
+        char msg[128];
+        snprintf(msg, sizeof(msg), "Received %.2f MB for branch '%s'",
+                 (double)chunk.size/1048576.0, branch);
+        note(msg);
+        note("Verifying JSON structure...");
+        if (chunk.size == 0 || chunk.data[0] != '{') {
+            warn("Unexpected response format (not a JSON object)");
+        } else {
+            ok("Looks like valid JSON");
+        }
+        cache_put(branch, chunk.data);
+        if (hdrs) curl_slist_free_all(hdrs);
+        curl_easy_cleanup(curl);
+        curl_global_cleanup();
+        return chunk.data; /* caller frees */
+    }
+
+try_disk_fallback:;
+    {
+        char *filedata = NULL; size_t flen = 0;
+        if (read_file_to_buf(json_path, &filedata, &flen) == 0 && filedata) {
+            warn("Network unavailable — using disk cache");
+            cache_put(branch, filedata);
+            if (hdrs) curl_slist_free_all(hdrs);
+            if (curl) curl_easy_cleanup(curl);
+            curl_global_cleanup();
+            return filedata;
+        }
+    }
+    if (hdrs) curl_slist_free_all(hdrs);
+    if (curl) curl_easy_cleanup(curl);
+    curl_global_cleanup();
+    return NULL;
+}
+
