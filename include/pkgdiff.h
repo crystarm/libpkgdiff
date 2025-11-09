@@ -12,7 +12,7 @@
 #define C_BLUE    CSI "34m"
 #define C_MAGENTA CSI "35m"
 #define C_CYAN    CSI "36m"
-#define C_ACCENT  CSI "36m"
+#define C_ACCENT  CSI "1;36m"
 
 /* Filters for common packages listing */
 #define PKGDIFF_FILTER_ALL     0
