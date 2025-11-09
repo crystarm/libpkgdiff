@@ -9,15 +9,17 @@
 
 
 
-void compare_branches_interactive_min(const char *branch1, const char *branch2, const char *arch_filter) {
+void pkgdiff_unique_pkgs(const char *branch1, const char *branch2, const char *arch_filter) {
     if (arch_filter && *arch_filter) {
         char buf[256];
         snprintf(buf, sizeof(buf), "Analyzing only architecture: %s", arch_filter);
         note(buf);
     }
+    printf("\n");
     note("Fetching package lists...");
     printf("\n");
     char *json1 = fetch_packages_json(branch1);
+    printf("\n");
     char *json2 = fetch_packages_json(branch2);
     if (!json1 || !json2) {
         fail("Failed to fetch JSON data for one or both branches");
@@ -104,18 +106,20 @@ size_t len1 = json_array_size(packages1), filt1 = 0;for (size_t i = 0; i < len1;
         iter = json_object_iter_next(map2, iter);
     }
     ok("Differences computed");
-    printf("\n" C_BOLD "Show 10-item previews of unique packages?\n" C_RESET);
+    printf("\n" C_ACCENT "Show 10-item previews of unique packages?\n" C_RESET);
     printf("  • Only in %s (not in %s): %zu\n", branch1, branch2, only1_count);
     printf("  • Only in %s (not in %s): %zu\n", branch2, branch1, only2_count);
     printf("[y/N]: ");char buf[16] = {0};
     if (fgets(buf, sizeof(buf), stdin) && (buf[0] == 'y' || buf[0] == 'Y')) {
-        printf("\n" C_BOLD "Preview: only in %s (first %d)\n" C_RESET, branch1, (int)PREVIEW_LIMIT);
+        printf("\n" C_ACCENT "Preview: only in %s (first %d)\n" C_RESET, branch1, (int)PREVIEW_LIMIT);
+        int w1N=0,w1A=0,w1V=0; compute_preview_widths(only1_preview,&w1N,&w1A,&w1V);
         for (size_t i = 0; i < json_array_size(only1_preview); ++i) {
-            print_pkg_line(json_array_get(only1_preview, i));
+            print_pkg_line_aligned(json_array_get(only1_preview, i), w1N, w1A, w1V);
         }
-        printf("\n" C_BOLD "Preview: only in %s (first %d)\n" C_RESET, branch2, (int)PREVIEW_LIMIT);
+        printf("\n" C_ACCENT "Preview: only in %s (first %d)\n" C_RESET, branch2, (int)PREVIEW_LIMIT);
+        int w2N=0,w2A=0,w2V=0; compute_preview_widths(only2_preview,&w2N,&w2A,&w2V);
         for (size_t i = 0; i < json_array_size(only2_preview); ++i) {
-            print_pkg_line(json_array_get(only2_preview, i));
+            print_pkg_line_aligned(json_array_get(only2_preview, i), w2N, w2A, w2V);
         }
     } else {
         printf("Skipping previews.\n");
@@ -170,57 +174,30 @@ json_decref(only1_preview);
     json_decref(root2);
 }
 
+
+
 /* ===== New feature: common packages across two branches with version preview & JSON save ===== */
 
-static __attribute__((unused)) void print_common_versions_line(json_t *pkg1, json_t *pkg2, const char *b1, const char *b2) {
-    const char *name = json_string_value(json_object_get(pkg1, "name"));
-    if (!name) name = "(unknown)";
-    const char *arch = json_string_value(json_object_get(pkg1, "arch"));
-    if (!arch) arch = "noarch";
 
-    long e1 = 0, e2 = 0;
-    json_t *e = json_object_get(pkg1, "epoch");
-    if (json_is_integer(e)) e1 = json_integer_value(e);
-    e = json_object_get(pkg2, "epoch");
-    if (json_is_integer(e)) e2 = json_integer_value(e);
 
-    const char *v1 = json_string_value(json_object_get(pkg1, "version")); if (!v1) v1 = "?";
-    const char *r1 = json_string_value(json_object_get(pkg1, "release")); if (!r1) r1 = "?";
-    const char *v2 = json_string_value(json_object_get(pkg2, "version")); if (!v2) v2 = "?";
-    const char *r2 = json_string_value(json_object_get(pkg2, "release")); if (!r2) r2 = "?";
-
-    char s1[256], s2[256];
-    if (e1 > 0) snprintf(s1, sizeof(s1), "%ld:%s-%s", e1, v1, r1);
-    else        snprintf(s1, sizeof(s1), "%s-%s", v1, r1);
-    if (e2 > 0) snprintf(s2, sizeof(s2), "%ld:%s-%s", e2, v2, r2);
-    else        snprintf(s2, sizeof(s2), "%s-%s", v2, r2);
-
-    int differ = strcmp(s1, s2) != 0;
-    if (differ) {
-        printf("• " C_BOLD "%s" C_RESET " [" C_GREEN "%s" C_RESET "] versions: (" C_MAGENTA "%s" C_RESET ": " C_YELLOW "%s" C_RESET ") (" C_MAGENTA "%s" C_RESET ": " C_YELLOW "%s" C_RESET ")\n", 
-               name, arch, b1, s1, b2, s2);
-    } else {
-        printf("• " C_BOLD "%s" C_RESET " [" C_GREEN "%s" C_RESET "] versions: (" C_MAGENTA "%s" C_RESET ": " C_GREEN "%s" C_RESET ") (" C_MAGENTA "%s" C_RESET ": " C_GREEN "%s" C_RESET ")  " C_DIM "[=]" C_RESET "\n", 
-               name, arch, b1, s1, b2, s2);
-    }
-}
-
-PKGDIFF_API void common_packages_interactive_min(const char *branch1, const char *branch2, const char *arch_filter, const char *save_path) {
+PKGDIFF_API void pkgdiff_common_pkgs_with_versions_ex(const char *branch1, const char *branch2, const char *arch_filter, const char *save_path, int filter) {
     if (arch_filter && *arch_filter) {
         char buf[256];
         snprintf(buf, sizeof(buf), "Analyzing only architecture: %s", arch_filter);
         note(buf);
     }
+    printf("\n");
     note("Fetching package lists...");
     printf("\n");
     char *json1 = fetch_packages_json(branch1);
+    printf("\n");
     char *json2 = fetch_packages_json(branch2);
     if (!json1 || !json2) {
         fail("Download failed (one of branches)"); 
         free(json1); free(json2); 
         return;
     }
-
+    printf("\n");
     note("Parsing JSON...");
     json_error_t err1 = {0}, err2 = {0};
     json_t *root1 = json_loads(json1, 0, &err1);
@@ -321,27 +298,56 @@ note("Computing common set...");
         iter = json_object_iter_next(map1, iter);
     }
 
-    ok("Common set computed");
-    printf("\n" C_BOLD C_ACCENT "Packages present in BOTH %s and %s: %zu\n" C_RESET, branch1, branch2, common_count);
-    printf(C_DIM "(Preview: first %d)\n" C_RESET, (int)PREVIEW_LIMIT);
-
-    for (size_t i = 0; i < json_array_size(preview); ++i) {
-        json_t *pv = json_array_get(preview, i);
+    
+    /* Build filtered set over the FULL common set, not just the preview */
+    json_t *matches = json_array();
+    json_t *preview_filtered = json_array();
+    size_t match_count = 0;
+    for (size_t i = 0; i < json_array_size(save_arr); ++i) {
+        json_t *entry = json_array_get(save_arr, i);
+        int differ = json_is_true(json_object_get(entry, "different"));
+        int match = (filter == PKGDIFF_FILTER_ALL) ||
+                    (filter == PKGDIFF_FILTER_DIFFER && differ) ||
+                    (filter == PKGDIFF_FILTER_EQUAL && !differ);
+        if (match) {
+            json_array_append(matches, entry);
+            match_count++;
+            if (json_array_size(preview_filtered) < PREVIEW_LIMIT) {
+                json_array_append(preview_filtered, entry);
+            }
+        }
+    }
+ok("Common set computed");
+        if (filter == PKGDIFF_FILTER_ALL) {
+            printf("\n" C_BOLD C_ACCENT "Packages present in BOTH %s and %s: %zu\n" C_RESET, branch1, branch2, json_array_size(matches));
+        } else if (filter == PKGDIFF_FILTER_DIFFER) {
+            printf("\n" C_BOLD C_ACCENT "Packages with DIFFERENT versions in both branches: %zu\n" C_RESET, json_array_size(matches));
+        } else {
+            printf("\n" C_BOLD C_ACCENT "Packages with the SAME versions in both branches: %zu\n" C_RESET, json_array_size(matches));
+        }
+        size_t preview_shown = json_array_size(preview_filtered) < PREVIEW_LIMIT ? json_array_size(preview_filtered) : PREVIEW_LIMIT;
+        printf(C_DIM "(Preview: first %zu)\n" C_RESET, preview_shown);
+    
+int wN=0,wA=0,wC1=0,wC2=0;
+compute_versions_widths(preview_filtered, branch1, branch2, &wN, &wA, &wC1, &wC2);
+if (json_array_size(preview_filtered) == 0) {
+        printf(C_DIM "No matches found for this selection.\n" C_RESET);
+    } else {
+    for (size_t i = 0; i < json_array_size(preview_filtered); ++i) {
+        json_t *pv = json_array_get(preview_filtered, i);
         const char *name = json_string_value(json_object_get(pv, "name"));
         const char *arch = json_string_value(json_object_get(pv, "arch"));
         const char *s1 = json_string_value(json_object_get(pv, branch1));
         const char *s2 = json_string_value(json_object_get(pv, branch2));
         int differ = (s1 && s2) ? strcmp(s1, s2) != 0 : 1;
-        if (differ) {
-            printf("• " C_BOLD "%s" C_RESET " [" C_GREEN "%s" C_RESET "] versions: (" C_MAGENTA "%s" C_RESET ": " C_YELLOW "%s" C_RESET ") (" C_MAGENTA "%s" C_RESET ": " C_YELLOW "%s" C_RESET ")\n", 
-                   name ? name : "(unknown)", arch ? arch : "noarch", branch1, s1?s1:"?", branch2, s2?s2:"?");
-        } else {
-            printf("• " C_BOLD "%s" C_RESET " [" C_GREEN "%s" C_RESET "] versions: (" C_MAGENTA "%s" C_RESET ": " C_GREEN "%s" C_RESET ") (" C_MAGENTA "%s" C_RESET ": " C_GREEN "%s" C_RESET ")  " C_DIM "[=]" C_RESET "\n", 
-                   name ? name : "(unknown)", arch ? arch : "noarch", branch1, s1?s1:"?", branch2, s2?s2:"?");
-        }
+        print_version_pair_aligned(name ? name : "(unknown)",
+                                   arch ? arch : "noarch",
+                                   branch1, s1 ? s1 : "?",
+                                   branch2, s2 ? s2 : "?",
+                                   differ, wN, wA, wC1, wC2);
     }
-
-    int do_save = 0;
+}
+int do_save = 0;
     char pathbuf[512] = {0};
     if (save_path && *save_path) {
         strncpy(pathbuf, save_path, sizeof(pathbuf)-1);
@@ -349,17 +355,29 @@ note("Computing common set...");
     } else {
         printf("\nSave to JSON file? [y/N]: ");char ans[8] = {0};
         if (fgets(ans, sizeof(ans), stdin) && (ans[0]=='y' || ans[0]=='Y')) {
-            printf("Enter filename (default: common-%s-%s.json): ", branch1, branch2);if (!fgets(pathbuf, sizeof(pathbuf), stdin)) { pathbuf[0] = '\0'; }
-            size_t L = strlen(pathbuf); if (L > 0 && pathbuf[L-1] == '\n') pathbuf[L-1] = '\0';
-            if (pathbuf[0] == '\0') {
-                snprintf(pathbuf, sizeof(pathbuf), "common-%s-%s.json", branch1, branch2);
-            }
-            do_save = 1;
+            
+
+/* Build default file name depending on filter */
+char default_name[256];
+const char *prefix = (filter==PKGDIFF_FILTER_ALL) ? "" : (filter==PKGDIFF_FILTER_DIFFER ? "diff-" : "same-");
+if (prefix[0] == 0) {
+    snprintf(default_name, sizeof(default_name), "common-%s-%s.json", branch1, branch2);
+} else {
+    snprintf(default_name, sizeof(default_name), "common-%s%s-%s.json", prefix, branch1, branch2);
+}
+printf("Enter filename (default: %s): ", default_name);
+if (!fgets(pathbuf, sizeof(pathbuf), stdin)) { pathbuf[0] = '\0'; }
+size_t L = strlen(pathbuf); if (L > 0 && pathbuf[L-1] == '\n') pathbuf[L-1] = '\0';
+if (pathbuf[0] == '\0') {
+    strncpy(pathbuf, default_name, sizeof(pathbuf)-1);
+    pathbuf[sizeof(pathbuf)-1] = '\0';
+}
+do_save = 1;
         }
     }
 
     if (do_save) {
-        char *dump = json_dumps(save_arr, JSON_INDENT(2));
+        char *dump = json_dumps(matches, JSON_INDENT(2));
         if (!dump) {
             fail("Failed to serialize JSON");
         } else {
@@ -376,7 +394,7 @@ note("Computing common set...");
         }
     }
 
-    json_decref(preview);
+    json_decref(preview); json_decref(preview_filtered); json_decref(matches);
     json_decref(save_arr);
     json_decref(map1);
     json_decref(map2);
@@ -384,3 +402,6 @@ note("Computing common set...");
     json_decref(root2);
 }
 
+PKGDIFF_API void pkgdiff_common_pkgs_with_versions(const char *branch1, const char *branch2, const char *arch_filter, const char *save_path) {
+    pkgdiff_common_pkgs_with_versions_ex(branch1, branch2, arch_filter, save_path, PKGDIFF_FILTER_ALL);
+}
