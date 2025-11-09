@@ -1,13 +1,8 @@
 #include <stdio.h>
 #include <string.h>
 #include "pkgdiff.h"
+#include "u.h"
 
-#ifndef note
-#define note(MSG) printf(C_GREEN "• %s" C_RESET "\n", (MSG))
-#endif
-#ifndef fail
-#define fail(MSG) fprintf(stderr, C_RED "✖ %s" C_RESET "\n", (MSG))
-#endif
 #include <stdlib.h>
 
 static void usage(const char *prog) {
@@ -37,23 +32,27 @@ int main(int argc, char **argv) {
         }
     }
     hello_pkgdiff();
-    printf(C_GREEN "• %s" C_RESET "\n", "Fetching package lists...");
-    char *__pre_j1 = fetch_packages_json("p11");
-    printf("\n");
-    char *__pre_j2 = fetch_packages_json("sisyphus");
-    if (!__pre_j1 || !__pre_j2) { fprintf(stderr, C_RED "✖ %s" C_RESET "\n", "Failed to download package lists"); return 3; }
-    free(__pre_j1); free(__pre_j2);
-    printf("\n");
-    printf("\n" C_BOLD C_ACCENT "Select operation" C_RESET "\n");
+printf("\n" C_BOLD C_ACCENT "Select operation" C_RESET "\n");
     printf(C_BOLD C_ACCENT "  1) " C_RESET "Unique packages per branch (original diff)\n");
     printf(C_BOLD C_ACCENT "  2) " C_RESET "Common packages with versions (intersection)\n");
     printf(C_BOLD C_ACCENT "[1/2]: " C_RESET);
     fflush(stdout);
     char op[8] = {0};
     if (fgets(op, sizeof(op), stdin) && (op[0] == '2')) {
-        common_packages_interactive_min("p11", "sisyphus", arch, NULL);
+        printf("\n" C_BOLD C_ACCENT "Select operation" C_RESET "\n");
+        printf(C_BOLD C_ACCENT "  1) " C_RESET "Show all common packages\n");
+        printf(C_BOLD C_ACCENT "  2) " C_RESET "Show all packages with the same versions in both branches\n");
+        printf(C_BOLD C_ACCENT "  3) " C_RESET "Show all packages with the different versions in branches\n");
+        printf(C_BOLD C_ACCENT "[1/2/3]: " C_RESET);
+        char sub[8] = {0}; fflush(stdout);
+        int filter = PKGDIFF_FILTER_ALL;
+        if (fgets(sub, sizeof(sub), stdin)) {
+            if (sub[0] == '2') filter = PKGDIFF_FILTER_EQUAL;
+            else if (sub[0] == '3') filter = PKGDIFF_FILTER_DIFFER;
+        }
+        pkgdiff_common_pkgs_with_versions_ex("p11", "sisyphus", arch, NULL, filter);
     } else {
-        compare_branches_interactive_min("p11", "sisyphus", arch);
+        pkgdiff_unique_pkgs("p11", "sisyphus", arch);
     }
     return 0;
 }

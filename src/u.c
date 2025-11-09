@@ -53,6 +53,7 @@
 
 
  void print_pkg_line(json_t *pkg) {
+    
     const char *name = json_string_value(json_object_get(pkg, "name"));
     const char *version = json_string_value(json_object_get(pkg, "version"));
     const char *release = json_string_value(json_object_get(pkg, "release"));
@@ -64,9 +65,75 @@
     if (!version) version = "?";
     if (!release) release = "?";
     if (!arch) arch = "noarch";
-    if (epoch > 0) printf("%s %ld:%s-%s (%s)\n", name, epoch, version, release, arch);
-    else printf("%s %s-%s (%s)\n", name, version, release, arch);
+
+    char evr[256];
+    if (epoch > 0) snprintf(evr, sizeof(evr), "%ld:%s-%s", epoch, version, release);
+    else snprintf(evr, sizeof(evr), "%s-%s", version, release);
+
+    // Pretty, uniform line with bullet, colors, and tabs to align columns
+    printf("• " C_BOLD "%s" C_RESET "\t[" C_GREEN "%s" C_RESET "]\t" C_YELLOW "%s" C_RESET "\n",
+           name, arch, evr);
+    
 }
+
+ static void pad_spaces(int n) { for (int i = 0; i < n; ++i) putchar(' '); }
+
+ void compute_preview_widths(json_t *arr, int *wname, int *warch, int *wevr) {
+    *wname = *warch = *wevr = 0;
+    size_t n = json_array_size(arr);
+    for (size_t i = 0; i < n; ++i) {
+        json_t *pkg = json_array_get(arr, i);
+        const char *name = json_string_value(json_object_get(pkg, "name"));
+        const char *version = json_string_value(json_object_get(pkg, "version"));
+        const char *release = json_string_value(json_object_get(pkg, "release"));
+        const char *arch = json_string_value(json_object_get(pkg, "arch"));
+        long epoch = 0;
+        json_t *e = json_object_get(pkg, "epoch");
+        if (json_is_integer(e)) epoch = json_integer_value(e);
+        if (!name) name = "(unknown)";
+        if (!version) version = "?";
+        if (!release) release = "?";
+        if (!arch) arch = "noarch";
+
+        char evr[256];
+        if (epoch > 0) snprintf(evr, sizeof(evr), "%ld:%s-%s", epoch, version, release);
+        else snprintf(evr, sizeof(evr), "%s-%s", version, release);
+
+        int ln = (int)strlen(name);
+        int la = (int)strlen(arch);
+        int lv = (int)strlen(evr);
+        if (ln > *wname) *wname = ln;
+        if (la > *warch) *warch = la;
+        if (lv > *wevr)  *wevr  = lv;
+    }
+ }
+
+ void print_pkg_line_aligned(json_t *pkg, int wname, int warch, int wevr) {
+    (void)wevr;  // width of EVR reserved for future use
+    const char *name = json_string_value(json_object_get(pkg, "name"));
+    const char *version = json_string_value(json_object_get(pkg, "version"));
+    const char *release = json_string_value(json_object_get(pkg, "release"));
+    const char *arch = json_string_value(json_object_get(pkg, "arch"));
+    long epoch = 0;
+    json_t *e = json_object_get(pkg, "epoch");
+    if (json_is_integer(e)) epoch = json_integer_value(e);
+    if (!name) name = "(unknown)";
+    if (!version) version = "?";
+    if (!release) release = "?";
+    if (!arch) arch = "noarch";
+
+    char evr[256];
+    if (epoch > 0) snprintf(evr, sizeof(evr), "%ld:%s-%s", epoch, version, release);
+    else snprintf(evr, sizeof(evr), "%s-%s", version, release);
+
+    // • NAME···  [arch]··  EVR··
+    printf("• " C_BOLD "%s" C_RESET, name);
+    pad_spaces(wname - (int)strlen(name) + 2);
+    printf("[" C_GREEN "%s" C_RESET "]", arch);
+    pad_spaces(warch - (int)strlen(arch) + 2);
+    printf(C_YELLOW "%s" C_RESET "\n", evr);
+ }
+
 
 
 
@@ -144,3 +211,55 @@ void log_fetched_count(const char *which, size_t n, const char *branch) {
 }
 
 
+
+
+ void compute_versions_widths(json_t *arr, const char *branch1, const char *branch2, int *wname, int *warch, int *wcol1, int *wcol2) {
+    *wname = *warch = *wcol1 = *wcol2 = 0;
+    if (!arr) return;
+    size_t n = json_array_size(arr);
+    for (size_t i = 0; i < n; ++i) {
+        json_t *pv = json_array_get(arr, i);
+        const char *name = json_string_value(json_object_get(pv, "name")); if (!name) name="(unknown)";
+        const char *arch = json_string_value(json_object_get(pv, "arch")); if (!arch) arch="noarch";
+        const char *s1 = json_string_value(json_object_get(pv, branch1)); if (!s1) s1="?";
+        const char *s2 = json_string_value(json_object_get(pv, branch2)); if (!s2) s2="?";
+        int ln = (int)strlen(name);
+        int la = (int)strlen(arch);
+        int l1 = 1 + (int)strlen(branch1) + 2 + (int)strlen(s1) + 1; // "(b1: s1)"
+        int l2 = 1 + (int)strlen(branch2) + 2 + (int)strlen(s2) + 1; // "(b2: s2)"
+        if (ln > *wname) *wname = ln;
+        if (la > *warch) *warch = la;
+        if (l1 > *wcol1) *wcol1 = l1;
+        if (l2 > *wcol2) *wcol2 = l2;
+    }
+ }
+
+ void print_version_pair_aligned(const char *name, const char *arch,
+                                 const char *branch1, const char *s1,
+                                 const char *branch2, const char *s2,
+                                 int differ,
+                                 int wname, int warch, int wcol1, int wcol2) {
+    (void)wcol2;  // not needed for trailing pad
+    if (!name) name="(unknown)";
+    if (!arch) arch="noarch";
+    if (!s1) s1="?";
+    if (!s2) s2="?";
+    int len_name = (int)strlen(name);
+    int len_arch = (int)strlen(arch);
+    int len_col1 = 1 + (int)strlen(branch1) + 2 + (int)strlen(s1) + 1; // "(b1: s1)"
+    
+
+    // • NAME··  [arch]··  (b1: s1)··  (b2: s2)  [=]
+    printf("• " C_BOLD "%s" C_RESET, name);
+    for (int i=0;i< (wname - len_name + 2); ++i) putchar(' ');
+    printf("[" C_GREEN "%s" C_RESET "]", arch);
+    for (int i=0;i< (warch - len_arch + 2); ++i) putchar(' ');
+
+    // First column with colors
+    printf("(" C_MAGENTA "%s" C_RESET ": %s%s%s)", branch1, differ ? C_YELLOW : C_GREEN, s1, C_RESET);
+    for (int i=0;i< (wcol1 - len_col1 + 2); ++i) putchar(' ');
+
+    // Second column with colors
+    printf("(" C_MAGENTA "%s" C_RESET ": %s%s%s)", branch2, differ ? C_YELLOW : C_GREEN, s2, C_RESET);
+putchar('\n');
+ }
