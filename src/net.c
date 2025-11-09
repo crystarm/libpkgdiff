@@ -180,7 +180,7 @@ char *fetch_packages_json(const char *branch) {
         if (now != (time_t)-1 && (now - st.st_mtime) < 2*60*60) {
             char *buf = NULL; size_t blen = 0;
             if (read_file_to_buf(json_path, &buf, &blen) == 0 && buf) {
-                note("Using cached sources (younger than 2 hours)");
+                do { char _msg[160]; snprintf(_msg, sizeof(_msg), "Using cached sources for branch %s (younger than 2 hours)", branch ? branch : "?"); note(_msg); } while(0);
                 cache_put(branch, buf);
                 return buf;
             }
