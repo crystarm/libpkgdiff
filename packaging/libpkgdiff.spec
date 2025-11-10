@@ -1,32 +1,47 @@
+%define _unpackaged_files_terminate_build 1
+
 Name:           libpkgdiff
-Version:        0.1
-Release:        1%{?dist}
-Summary:        ALT Package Comparator (library + CLI)
+Version:        1.1
+Release:        alt1
+Summary:        ALT Package Comparator (CLI with a bundled private library)
+Group:          System/Utilities
 License:        MIT
-URL:            https://example.invalid/libpkgdiff
+URL:            https://github.com/crystarm/libpkgdiff
 Source0:        %{name}-%{version}.tar.gz
 
-BuildRequires:  gcc, make, pkgconfig(libcurl), pkgconfig(jansson)
+BuildRequires:  gcc
+BuildRequires:  make
+BuildRequires:  pkg-config
+BuildRequires:  libcurl-devel
+BuildRequires:  libjansson-devel
+
+# Optional but explicit; SONAME auto-reqs usually suffice
+Requires:       libcurl
+Requires:       libjansson4
+Requires:       ca-certificates
 
 %description
-Library and CLI tool to compare ALT Linux package lists between branches.
+Library and CLI tool to compare ALT Linux package lists between branches p11 and sisyphus.
 
 %prep
 %setup -q
 
 %build
-make
+%make_build
 
 %install
-mkdir -p %{buildroot}%{_bindir}
-mkdir -p %{buildroot}%{_libdir}
-install -m 0755 pkgdiff %{buildroot}%{_bindir}/pkgdiff
-install -m 0644 libpkgdiff.so %{buildroot}%{_libdir}/libpkgdiff.so
+rm -rf %{buildroot}
+install -Dpm 0755 pkgdiff %{buildroot}%{_bindir}/pkgdiff
+install -Dpm 0755 libpkgdiff.so %{buildroot}%{_libdir}/libpkgdiff.so
+
+%post -p /sbin/ldconfig
+%postun -p /sbin/ldconfig
 
 %files
+%doc README* LICENSE* COPYING*
 %{_bindir}/pkgdiff
 %{_libdir}/libpkgdiff.so
 
 %changelog
-* Mon Nov 10 2025 Your Name <you@example.com> - 0.1-1
-- Initial package
+* Mon Nov 10 2025 Your Name <you@example.com> 1.1-alt1
+- Initial ALT package: CLI + bundled private libpkgdiff.so
