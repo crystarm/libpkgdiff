@@ -20,34 +20,6 @@ It downloads JSON from the official ALT repo database API, caches the results lo
 
 ---
 
-## Repository layout
-
-```
-include/           # public API header (pkgdiff.h)
-src/
-  lib/             # internal library sources/headers
-    ansi.h
-    util.c  util.h
-    net.c   net.h
-    cmp.c
-  cli/             # CLI frontend
-    main.c
-    ui.c   ui.h
-containers/
-  Containerfile    # two-stage build (ALT p11 base)
-packaging/
-  libpkgdiff.spec  # ALT RPM spec (1.1)
-podman-build.sh
-podman-run.sh
-Makefile
-LICENSE
-README.md          # this file
-```
-
-Key refactor notes live in **`STRUCTURE_REFACTOR_NOTES.md`** and migration details in **`MIGRATION.md`**.
-
----
-
 ## Build & run
 
 ### Dependencies
