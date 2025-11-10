@@ -1,426 +1,337 @@
-# libpkgdiff (CLI: `pkgdiff`)
+# libpkgdiff — ALT Package Comparator
+CLI: **`pkgdiff`** · Library: **`libpkgdiff.so`** · License: MIT
 
 > **CLI name:** the build now produces a binary named `pkgdiff` (previously `compare-cli`). Update your scripts if you used the old name.
 
-Compare **binary package lists** between ALT Linux branches (default: `p11` ↔ `sisyphus`).  
-Fetches JSON from the official ALT API, parses it, shows short **human‑readable previews** in the terminal, and can save **full JSON** lists to files.
-
-- Library: `libpkgdiff.so`
-- CLI: **`pkgdiff`**
-- Dependencies: `libcurl-devel` (HTTP), `libjansson-devel` (JSON)
+`libpkgdiff` fetches and compares **binary package lists** between ALT Linux branches (by default `p11` ↔ `sisyphus`).  
+It downloads JSON from the official ALT repo database API, caches the results locally, and renders human‑friendly, aligned summaries in the terminal. The same library functions power the bundled CLI.
 
 ---
 
-## Features
+## Highlights
 
-- Pull package lists from `rdb.altlinux.org` (REST API).
-- **Architecture filter** via `--arch` (e.g. only `x86_64`).
-- Show **10‑item previews** (one package per line) of unique packages:
-  - present only in `p11` (not in `sisyphus`)
-  - present only in `sisyphus` (not in `p11`)
-- Optionally save full unique lists as JSON:
-  - `p11_only.json`
-  - `sisyphus_only.json`
-- Minimal, readable TUI: ASCII frames + colored status lines.
-- Greeting art (ASCII/Braille) loaded from a file (see **Environment**).
+- **Two comparison modes**
+  - **Unique packages per branch:** show what exists **only** in `p11` or **only** in `sisyphus` (with optional `--arch` filter).
+  - **Common packages with versions:** for packages present in **both** branches, show **all**, **only equal**, or **only different** versions.
+- **Local caching** of downloaded JSON (per‑branch) with a **2‑hour TTL** to avoid unnecessary network trips.
+- **Clean separation** of public API vs CLI internals; a small `include/pkgdiff.h` and private headers in `src/lib` and `src/cli`.
+- **Container‑friendly**: multi‑stage `Containerfile` + `podman-build.sh` / `podman-run.sh`.
+- **ALT RPM packaging**: skeleton spec in `packaging/libpkgdiff.spec` (version **1.1**).
 
 ---
 
-## Quick start (RPM on ALT Linux)
+## Repository layout
 
-If you have the RPM package (recommended for reviewers):
-
-```bash
-sudo apt-get install -y ./libpkgdiff-<version>.x86_64.rpm
-pkgdiff               # run
-pkgdiff --arch x86_64 # only one architecture
+```
+include/           # public API header (pkgdiff.h)
+src/
+  lib/             # internal library sources/headers
+    ansi.h
+    util.c  util.h
+    net.c   net.h
+    cmp.c
+  cli/             # CLI frontend
+    main.c
+    ui.c   ui.h
+containers/
+  Containerfile    # two-stage build (ALT p11 base)
+packaging/
+  libpkgdiff.spec  # ALT RPM spec (1.1)
+podman-build.sh
+podman-run.sh
+Makefile
+LICENSE
+README.md          # this file
 ```
 
-The package installs:
-- `/usr/bin/pkgdiff` (CLI)
-- `/usr/lib64/libpkgdiff.so` (library)
-- `/usr/share/libpkgdiff/picture.txt` (optional greeting art, if packaged)
-
-Runtime dependencies (libcurl, jansson, …) are resolved automatically by ALT’s auto‑requires when installing the RPM.
+Key refactor notes live in **`STRUCTURE_REFACTOR_NOTES.md`** and migration details in **`MIGRATION.md`**.
 
 ---
 
-## Build from source
+## Build & run
 
-### Requirements
+### Dependencies
+- **C toolchain:** `gcc`, `make`, `pkg-config`
+- **Libraries:** `libcurl` (HTTP), `jansson` (JSON)
 
-**ALT Linux (inside VM or bare‑metal):**
+**ALT p11 (apt‑rpm):**
 ```bash
 sudo apt-get update
-sudo apt-get install -y gcc make libcurl-devel pkgconfig(jansson) ca-certificates
+sudo apt-get install -y gcc make pkg-config libcurl-devel "pkgconfig(jansson)"
 ```
 
 **Debian/Ubuntu:**
 ```bash
 sudo apt update
-sudo apt install -y build-essential libcurl4-openssl-dev libjansson-dev
+sudo apt install -y build-essential pkg-config libcurl4-openssl-dev libjansson-dev
 ```
 
 ### Build
 ```bash
 make clean && make
-# run from build dir
-LD_LIBRARY_PATH=. ./compare-cli
-LD_LIBRARY_PATH=. ./compare-cli --arch x86_64
 ```
 
-### System‑wide install (optional)
+### Run (from the build dir)
 ```bash
-sudo make install PREFIX=/usr
-sudo ldconfig
-pkgdiff --arch x86_64   # now available globally
+LD_LIBRARY_PATH=. ./pkgdiff [--arch x86_64]
 ```
 
-> The CLI binary is installed as **`/usr/bin/pkgdiff`**.
+> Tip: the app prints an ASCII splash once; then interactive prompts guide you.
 
 ---
 
-## Container (ALT p11 base)
+## CLI usage
 
-This repo uses an **ALT Linux p11** base image.
+```
+Usage: pkgdiff [--arch <name>]
 
-~~~bash
-# Build
-podman build -t libpkgdiff:alt -f Containerfile
+Main menu:
+  1) Unique packages per branch (p11 vs sisyphus)
+  2) Common packages with versions
+     ├─ Show all common packages
+     ├─ Show packages with the same versions in both branches
+     └─ Show packages with different versions between branches
+```
 
-# Run the CLI inside the container
-podman run --rm -it libpkgdiff:alt pkgdiff --help
-~~~
-
-If you prefer the provided scripts:
-~~~bash
-./podman-build.sh
-./podman-run.sh -- --help   # anything after -- is passed to pkgdiff
-~~~
+- `--arch` is optional (e.g. `--arch x86_64`, `--arch noarch`).  
+- Outputs are **aligned** regardless of package name length; equal/different versions are color‑coded.
 
 ---
 
-## Build RPM (ALT Linux)
+## Caching & file locations
 
-> ✅ Tested on **ALT p11** (host or container). Produces native `.rpm` and `.src.rpm`.
+- JSON for each branch is cached under **sources dir**:
+  - Default (XDG aware):  
+    - `$XDG_CACHE_HOME/libpkgdiff/sources` or `~/.cache/libpkgdiff/sources`
+  - Override with **`LIBPKGDIFF_SOURCES_DIR`**
+- Derived or saved results go under **results dir**:
+  - Default (XDG aware):  
+    - `$XDG_DATA_HOME/libpkgdiff/results` or `~/.local/share/libpkgdiff/results`
+  - Override with **`LIBPKGDIFF_RESULTS_DIR`**
+- Cache TTL is **2 hours**. Fresh runs display a message like:  
+  `Using cached JSON for branch 'p11' (...)`  
+  If the cache is older than 2 hours, the branch JSON is fetched again.
+
+Each cached branch uses two files:
+```
+<dir>/<branch>.json   # payload
+<dir>/<branch>.meta   # metadata (timestamps, etc.)
+```
+
+Environment variables the app respects:
+```
+LIBPKGDIFF_SOURCES_DIR   # override cache location
+LIBPKGDIFF_RESULTS_DIR   # override results location
+XDG_CACHE_HOME           # used if set
+XDG_DATA_HOME            # used if set
+SSL_CERT_DIR             # pass-through for containers if needed
+```
 
 ---
 
-### 1) Install build tools and development headers
+## Library API (C)
 
+Public header: **`include/pkgdiff.h`**
+
+Core functions:
+```c
+void pkgdiff_unique_pkgs(const char *branch1, const char *branch2,
+                         const char *arch_filter);
+
+void pkgdiff_common_pkgs_with_versions(const char *branch1, const char *branch2,
+                                       const char *arch_filter,
+                                       const char *save_path);
+
+/* Extended: filter the common set (all/equal/different) */
+void pkgdiff_common_pkgs_with_versions_ex(const char *branch1, const char *branch2,
+                                          const char *arch_filter,
+                                          const char *save_path,
+                                          int filter);
+
+/* Filter constants */
+#define PKGDIFF_FILTER_ALL     0
+#define PKGDIFF_FILTER_EQUAL   1
+#define PKGDIFF_FILTER_DIFFER  2
+```
+
+All functions print a formatted view to stdout. When `save_path` is non‑NULL, a JSON preview is also written there.  
+Cache & result directories can be queried internally via:
+```c
+void pkgdiff_get_sources_dir(char *out, size_t out_sz);
+void pkgdiff_get_results_dir(char *out, size_t out_sz);
+```
+
+---
+
+## Example outputs
+
+- **Unique packages**: lists items present only in one branch, grouped by branch.
+- **Common with versions**: shows lines like  
+  `• <name> [<arch>] versions: (p11: <verrel>) (sisyphus: <verrel>)  [= / ≠]`  
+  with bold/green highlights; equal versions are marked with a subtle `[=]` badge.
+
+---
+
+## Packaging (ALT Linux RPM)
+
+A ready‑to‑use spec is included: **`packaging/libpkgdiff.spec`** (Version **1.1**, Release `alt1`).
+
+**Quick SRPM/RPM build:**
 ```bash
-sudo apt-get update
-sudo apt-get install -y rpm-build rpmdevtools gcc make libcurl-devel libjansson-devel
+# from repo root
+make clean && make
+rpmbuild --define "_sourcedir $PWD"          --define "_specdir   $PWD/packaging"          --define "_builddir  $PWD/build"          --define "_srcrpmdir $PWD/dist"          --define "_rpmdir    $PWD/dist"          -ba packaging/libpkgdiff.spec
+# results under ./dist/
 ```
 
-📚 [rpm-build on wiki.altlinux.org](https://www.altlinux.org/RPM#Сборка_RPM)
+The package installs:
+```
+/usr/bin/pkgdiff
+/usr/lib*/libpkgdiff.so
+```
+
+> **Note:** The spec treats the shared library as **private** to the CLI (soname not stabilised).
 
 ---
 
-### 2) Set up the RPM build tree
+## Containers (Podman/Docker)
 
-```bash
-rpmdev-setuptree  # creates ~/rpmbuild/{SOURCES,SPECS,BUILD,RPMS,SRPMS}
-```
-
-📚 [rpmdevtools on wiki.altlinux.org](https://www.altlinux.org/Rpmdevtools)
-
----
-
-### 3) Create versioned source tarball
-
-Pick a version (e.g. from git tag or manual), and create source archive:
-
-```bash
-VER=0.1.0
-git archive --format=tar --prefix=libpkgdiff-${VER}/ HEAD | gzip > ~/rpmbuild/SOURCES/libpkgdiff-${VER}.tar.gz
-```
-
----
-
-### 4) Create SPEC file
-
-Save the following as `~/rpmbuild/SPECS/libpkgdiff.spec`:
-
-```spec
-Name:           libpkgdiff
-Version:        0.1.0
-Release:        alt1
-Summary:        Compare binary package lists between ALT Linux branches
-License:        MIT
-URL:            https://github.com/crystarm/libpkgdiff
-Source0:        %name-%version.tar.gz
-
-BuildRequires:  gcc, make, libcurl-devel, libjansson-devel
-
-%description
-Library + CLI to fetch package lists from rdb.altlinux.org and compare two branches
-(e.g. p11 vs sisyphus), with optional architecture filtering.
-
-%prep
-%setup -q
-
-%build
-%make_build
-
-%install
-rm -rf %{buildroot}
-%make_install PREFIX=%{buildroot}%{_prefix}
-
-# Install CLI under the final name
-install -D -m 0755 compare-cli %{buildroot}%{_bindir}/pkgdiff
-
-# Ensure library is in the correct libdir
-if [ -f "%{buildroot}%{_prefix}/lib/libpkgdiff.so" ] && [ ! -f "%{buildroot}%{_libdir}/libpkgdiff.so" ]; then
-  install -D -m 0755 %{buildroot}%{_prefix}/lib/libpkgdiff.so %{buildroot}%{_libdir}/libpkgdiff.so
-  rm -f %{buildroot}%{_prefix}/lib/libpkgdiff.so
-fi
-
-# Optional greeting art
-if [ -f picture.txt ]; then
-  install -D -m 0644 picture.txt %{buildroot}%{_datadir}/libpkgdiff/picture.txt
-fi
-
-%post -p /sbin/ldconfig
-%postun -p /sbin/ldconfig
-
-%files
-%doc README.md
-%{_bindir}/pkgdiff
-%{_libdir}/libpkgdiff.so
-%{_datadir}/libpkgdiff/picture.txt
-
-%changelog
-* Fri Oct 31 2025 Packager <packager@example.org> 0.1.0-alt1
-- Initial build
-```
-
-> ⚠️ Don’t forget to change `Version:` and `.tar.gz` name if you use a different version.
-
----
-
-### 5) Build the package
-
-```bash
-rpmbuild -ba ~/rpmbuild/SPECS/libpkgdiff.spec
-```
-
-📚 [RPM building tutorial](https://www.altlinux.org/RPM#Сборка_RPM)
-
-Resulting files:
-- Binary RPM: `~/rpmbuild/RPMS/$(uname -m)/libpkgdiff-*.rpm`
-- Source RPM: `~/rpmbuild/SRPMS/libpkgdiff-*.src.rpm`
-
----
-
-💡 **Tip**: You can perform the full build process inside the ALT container (see below) to avoid installing build tools on your host system.
-
-## Podman (containerized build & run)
-
-Multi‑stage image based on **ALT Linux p11** that compiles the project and runs the CLI.
-
-```bash
-# in project root (Containerfile present)
-podman build -t altpkgdiff:dev -f Containerfile .
-
-# Run with your working dir mounted (so JSON files are saved on host)
-podman run --rm -it -v "$PWD":/work altpkgdiff:dev
-podman run --rm -it -v "$PWD":/work altpkgdiff:dev --arch x86_64
-```
-
-If you use the provided helpers:
+**Build the image:**
 ```bash
 ./podman-build.sh
-./podman-run.sh --arch aarch64
+# env overrides:
+#   CONTAINER_ENGINE=podman|docker
+#   IMAGE_TAG=my/libpkgdiff:alt
+#   CONTAINERFILE=containers/Containerfile
 ```
 
----
-
-## QEMU/KVM + ALT VM (used for testing)
-
-1) On the host (Debian), install QEMU/KVM and create a VM with ALT p11.  
-2) Inside ALT VM install deps:  
-   `sudo apt-get install -y gcc make libcurl-devel pkgconfig(jansson)`  
-3) Copy the project into VM (e.g. `rsync` over SSH with port‑forwarding) and build.  
-4) Run `pkgdiff` (or `LD_LIBRARY_PATH=. ./compare-cli` from the build dir).
-
-This is how the solution was validated.
-
----
-
-## Usage
-
+**Run the containerized CLI against your working dir (mounted at /work):**
 ```bash
-pkgdiff                # interactive, default: p11 vs sisyphus
-pkgdiff --arch x86_64  # compare only x86_64 packages
-
-# From the build directory (without make install):
-LD_LIBRARY_PATH=. ./compare-cli --arch aarch64
+./podman-run.sh [--arch x86_64]
+# defaults:
+#   -e XDG_CACHE_HOME="/work/.cache"
+#   -e LIBPKGDIFF_SOURCES_DIR="/work/.cache/libpkgdiff/sources"
 ```
 
-What you’ll see:
-1. Greeting and optional art (press Enter to continue).
-2. For each branch:
-   - “Connecting to rdb.altlinux.org”
-   - `Endpoint: GET /api/export/branch_binary_packages/<branch>`
-   - “Requesting branch list…”
-   - “✔ Download complete” + size
-   - “✔ Looks like valid JSON”
-3. Totals:
-   ```
-   Fetched NNNNN packages from branch1 (p11)
-   Fetched MMMMM packages from branch2 (sisyphus)
-   ```
-4. Prompts:
-   - Show 10‑item previews? `[y/N]` (one line per package)
-   - Save full unique lists? `[y/N]` → `p11_only.json`, `sisyphus_only.json`
-
-> Full lists are large; saving can take noticeable time.
-
----
-
-## CLI options
-
-```
---arch <name>    Filter by architecture (e.g. x86_64, aarch64). Exact match.
--h, --help       Show brief usage.
-```
-
-Branches are currently fixed to `p11` and `sisyphus` (per test task).
-
----
-
-## Environment
-
-```
-PKGDIFF_ART=/path/to/picture.txt
-```
-If set, the greeting art is loaded from this path. Otherwise the program tries:
-1) `./picture.txt` (current directory)  
-2) `/usr/share/libpkgdiff/picture.txt`  
-3) `/usr/local/share/libpkgdiff/picture.txt`  
-
-If nothing is found, the program continues without art.
+The entrypoint is `pkgdiff`; logs and cache stay in the mounted workdir.
 
 ---
 
 ## Troubleshooting
 
-**`error while loading shared libraries: libpkgdiff.so`**  
-Run from the build dir with:
-```bash
-LD_LIBRARY_PATH=. ./compare-cli
-```
-or install system‑wide:
-```bash
-sudo make install PREFIX=/usr
-sudo ldconfig
-pkgdiff
-```
-
-**Network/API issues**  
-Temporary network or API hiccups will be shown in red; re‑run later.
-
-**Container shows no output**  
-Remember the program waits for Enter after the greeting prompt.
+- **Missing colors / garbled escape sequences:** your terminal might not support ANSI colors—set `TERM=xterm-256color`.
+- **“Using cached JSON ...” when you expect a fresh fetch:** the TTL is 2 hours; delete files in the sources dir or set `LIBPKGDIFF_SOURCES_DIR` to an empty temp location.
+- **`libcurl` / `jansson` link errors:** ensure `pkg-config --libs libcurl jansson` returns valid flags; otherwise edit `Makefile` to add `-lcurl -ljansson` manually (already present as a fallback).
 
 ---
 
-## Project structure
-## RPM package
+## Roadmap
 
-To build an RPM package for ALT Linux:
-
-```bash
-make rpm
-```
-
-This will generate a binary RPM and a source RPM inside the `build/` directory:
-
-```
-build/
-├─ RPMS/x86_64/libpkgdiff-<version>.x86_64.rpm
-├─ SRPMS/libpkgdiff-<version>.src.rpm
-```
-
-To install the resulting package on ALT Linux, use:
-
-```bash
-sudo rpm -Uvh ./build/RPMS/x86_64/libpkgdiff-<version>.x86_64.rpm
-```
-
-> This is the recommended way to install a local RPM on ALT Linux.  
-> See: https://www.altlinux.org/RPM#Установка_пакета
-
-Note: If your system is missing dependencies, install them using `apt-get`, `apt-install`, or via `rpm -Uvh` + `apt-get -f install` if needed.
-
-```
-.
-├── Makefile
-├── README.md
-├── Containerfile
-├── picture.txt
-├── podman-build.sh
-├── podman-run.sh
-├── include/
-│   └── pkgdiff.h
-└── src/
-    ├── main.c
-    ├── ui.c
-    ├── net.c
-    ├── cmp.c
-    ├── u.h
-    └── u.c
-```
+- Optional output paging and non‑interactive mode flags.
+- Configurable cache TTL.
+- More branch pairs and offline comparison from saved JSONs.
 
 ---
 
 ## License
-MIT
 
-## Common packages (p11 ∩ sisyphus) — Interactive mode
+MIT — see `LICENSE`.
 
-This CLI now also supports listing packages that are **present in both branches** and printing their versions side-by-side.
+---
 
-**How to run**
-1. Build as usual:
-   ```bash
-   make
-   ./pkgdiff              # optionally add --arch x86_64
-   ```
-2. In the interactive menu that appears after the splash screen, choose:
-   ```
-   Select operation:
-     1) Unique packages per branch (original diff)
-     2) Common packages with versions (intersection)
-   [1/2]:
-   ```
-   Pick `2` to compute the intersection.
+## Acknowledgements
 
-**What you’ll see**
-- A **preview of the first 10** common packages is printed.
-- Each line shows `name [arch]` followed by versions for `p11` and `sisyphus`.
-- Version strings include `epoch` when present, as `epoch:version-release`; otherwise `version-release`.
+Thanks to the ALT Linux community and maintainers of `libcurl` and `jansson`.
 
-Example preview:
-```
-• zstd [x86_64] versions: (p11: 1.5.6-1) (sisyphus: 1.5.6-2)
-• barutils [i586] versions: (p11: 0.9-2) (sisyphus: 0.9-2)  [=]
+
+---
+
+## RPM Packaging Tutorial (ALT Linux) — Step by step
+
+> This project ships a ready spec: **`packaging/libpkgdiff.spec`** (Version **1.1**, Release `alt1`).  
+> Below is a concise, reproducible flow for ALT **p11** (works similarly on Sisyphus).
+
+### 1) Install tools
+```bash
+sudo apt-get update
+sudo apt-get install -y rpmdevtools rpm-build hasher git-core gcc make \
+                        libcurl-devel "pkgconfig(jansson)"
 ```
 
-**Saving to JSON**
-After the preview, the CLI **asks whether to save the full common set** to a file. If you answer `y`, you can enter a path; otherwise a default like `common-p11-sisyphus.json` is used.
-
-The saved JSON is a list of objects with the following shape:
-```json
-[
-  {
-    "name": "zstd",
-    "arch": "x86_64",
-    "p11": "1.5.6-1",
-    "sisyphus": "1.5.6-2",
-    "different": true
-  }
-]
+### 2) Prepare the rpmbuild tree
+```bash
+rpmdev-setuptree   # creates ~/rpmbuild/{SOURCES,SPECS,BUILD,RPMS,SRPMS}
 ```
-`different` is `true` when formatted versions differ between the branches, and `false` when they are equal.
+
+### 3) Build directly (outside hasher)
+From the repo root:
+```bash
+# Clean & build binaries first (optional)
+make clean && make
+
+# Build SRPM and RPMs in ./dist using defines
+rpmbuild --define "_sourcedir $PWD" \
+         --define "_specdir   $PWD/packaging" \
+         --define "_builddir  $PWD/build" \
+         --define "_srcrpmdir $PWD/dist" \
+         --define "_rpmdir    $PWD/dist" \
+         -ba packaging/libpkgdiff.spec
+# Artifacts land under ./dist/
+```
+
+### 4) Build in a clean chroot with **hasher** (recommended)
+```bash
+# one-time setup
+sudo hasher-useradd "$USER"
+newgrp hasher
+hsh --initroot
+
+# produce a source RPM from your working tree
+rpmbuild -bs packaging/libpkgdiff.spec \
+         --define "_sourcedir $PWD" \
+         --define "_specdir   $PWD/packaging" \
+         --define "_srcrpmdir $PWD/dist"
+
+# build inside hasher (clean environment)
+hasher ./dist/libpkgdiff-1.1-alt1.src.rpm
+# result paths will be printed by hasher; usually under /var/hasher/... and copied to the working dir depending on config
+```
+
+### Useful ALT links
+- RPM overview (ALT Wiki, EN): https://en.altlinux.org/RPM  
+- **hasher** — clean/reproducible builds (EN): https://en.altlinux.org/Hasher  
+- **gear** — packaging from git (EN): https://en.altlinux.org/Gear/Introduction  
+- git.alt quickstart (EN): https://en.altlinux.org/Git.alt_quickstart  
+- Developer portal / Main page (EN): https://en.altlinux.org/Main_Page  
+- Packaging HOWTO (RU): https://www.altlinux.org/ALT_Packaging_HOWTO
+
+> Note: Some pages are Russian‑only; they still serve as authoritative references for ALT packaging conventions and policies.
+
+---
+
+## Project Structure (recap)
+
+```
+libpkgdiff/ (repo root)
+├─ include/
+│  └─ pkgdiff.h                  # public C API
+├─ src/
+│  ├─ lib/                       # internal library (not installed as stable ABI)
+│  │  ├─ ansi.h                  # ANSI color macros
+│  │  ├─ util.c  util.h          # filesystem, env, formatting helpers
+│  │  ├─ net.c   net.h           # HTTP fetch (libcurl), cache handling
+│  │  └─ cmp.c                   # comparison routines (unique/common/equal/differ)
+│  └─ cli/                       # CLI frontend
+│     ├─ main.c                  # entrypoint / interactive menu
+│     ├─ ui.c   ui.h             # TTY UI helpers (layout, alignment, badges)
+│     └─ (private headers)       # if any
+├─ containers/
+│  └─ Containerfile              # 2-stage build on ALT p11
+├─ packaging/
+│  └─ libpkgdiff.spec            # RPM spec (Version 1.1, Release alt1)
+├─ podman-build.sh               # container image build helper
+├─ podman-run.sh                 # convenience runner with cache binds
+├─ Makefile                      # builds lib + CLI (binary: pkgdiff)
+├─ LICENSE
+└─ README.md                     # you are here
+```
