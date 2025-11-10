@@ -1,0 +1,14 @@
+# Simple two-stage build for pkgdiff
+FROM debian:stable AS build
+RUN apt-get update && apt-get install -y --no-install-recommends \ 
+    build-essential pkg-config libcurl4-gnutls-dev libjansson-dev ca-certificates &&     rm -rf /var/lib/apt/lists/*
+WORKDIR /work
+COPY . .
+RUN make
+
+FROM debian:stable
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates &&     rm -rf /var/lib/apt/lists/*
+COPY --from=build /work/pkgdiff /usr/bin/pkgdiff
+COPY --from=build /work/libpkgdiff.so /usr/lib/
+ENV LD_LIBRARY_PATH=/usr/lib
+ENTRYPOINT ["pkgdiff"]

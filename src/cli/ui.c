@@ -1,11 +1,17 @@
 #include <stdio.h>
+#include "ui.h"
+#include "ansi.h"
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 #include <curl/curl.h>
 #include <jansson.h>
 #include "pkgdiff.h"
-#include "u.h"
+#include "util.h"
+
+#ifndef BUILDING_PKGDIFF
+#define BUILDING_PKGDIFF 1
+#endif
 
 
 
@@ -54,5 +60,4 @@ static void wait_and_show_braille(void) {
 
 
 
-void hello_pkgdiff(void) { wait_and_show_braille(); }
-
+ void hello_pkgdiff(void) { wait_and_show_braille(); }

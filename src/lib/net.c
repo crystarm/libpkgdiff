@@ -1,5 +1,7 @@
-// src/net.c — clean single-definition version
+
 #include <stdio.h>
+#include "net.h"
+#include "ansi.h"
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
@@ -10,12 +12,12 @@
 #include <curl/curl.h>
 
 #include "pkgdiff.h"
-#include "u.h"
+#include "util.h"
 
-/* ---------------- in-process cache (avoid re-downloading within one run) --- */
+
 struct CachedJson {
     char  branch[64];
-    char *data; /* heap-allocated JSON text */
+    char *data; 
 };
 static struct CachedJson s_cache[8];
 static int s_cache_count = 0;
@@ -63,7 +65,7 @@ static void cache_put(const char *branch, const char *json_text) {
     }
 }
 
-/* ---------------- curl write callback ------------------------------------- */
+
 static size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp) {
     size_t realsize = size * nmemb;
     struct MemoryBuffer *mem = (struct MemoryBuffer*)userp;
@@ -76,7 +78,7 @@ static size_t write_callback(void *contents, size_t size, size_t nmemb, void *us
     return realsize;
 }
 
-/* ---------------- disk cache (XDG) + response headers --------------------- */
+
 static void cache_paths(const char *branch, char *json_path, size_t json_sz,
                         char *meta_path, size_t meta_sz) {
     const char *xdg = getenv("XDG_CACHE_HOME");
@@ -115,7 +117,7 @@ int n2 = snprintf(meta_path, meta_sz, "%s/%s.meta", dir, branch);
                             buf[n] = '\0';
                             fclose(f);
                             if (out) *out = buf;
-                            if (out_len) *out_len = (size_t)n;   // <- разнесено на две строки (-Wmisleading-indentation)
+                            if (out_len) *out_len = (size_t)n;   
                             return 0;
                         }
 
@@ -158,22 +160,22 @@ int n2 = snprintf(meta_path, meta_sz, "%s/%s.meta", dir, branch);
 }
 
 
-                        /* ---------------- public function ----------------------------------------- */
+                        
                         
 char *fetch_packages_json(const char *branch) {
     if (!branch) { fail("fetch_packages_json: branch is NULL"); return NULL; }
 
-    /* In-process cache */
+    
     {
         char *cached = cache_get_copy(branch);
         if (cached) return cached;
     }
 
-    /* Resolve disk cache paths (sources dir) */
+    
     char json_path[512], meta_path[512];
     cache_paths(branch, json_path, sizeof(json_path), meta_path, sizeof(meta_path));
 
-    /* TTL: 2 hours */
+    
     struct stat st;
     if (stat(json_path, &st) == 0) {
         time_t now = time(NULL);
@@ -187,7 +189,7 @@ char *fetch_packages_json(const char *branch) {
         }
     }
 
-    /* Prepare request */
+    
     char url[512];
     snprintf(url, sizeof(url), "https://rdb.altlinux.org/api/export/branch_binary_packages/%s", branch);
 
@@ -198,7 +200,7 @@ char *fetch_packages_json(const char *branch) {
     CURLcode res;
     long code = 0;
 
-    /* Conditional headers from meta */
+    
     char etag[256] = {0}, last_mod[256] = {0};
     {
         char *meta = NULL; size_t mlen = 0;
@@ -253,7 +255,7 @@ char *fetch_packages_json(const char *branch) {
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
 
     if (res == CURLE_OK && code == 304) {
-        /* Not modified — load from disk */
+        
         char *filedata = NULL; size_t flen = 0;
         if (read_file_to_buf(json_path, &filedata, &flen) == 0 && filedata) {
             ok("Local cache is up to date (HTTP 304)");
@@ -263,11 +265,11 @@ char *fetch_packages_json(const char *branch) {
             curl_global_cleanup();
             return filedata;
         }
-        /* fallthrough to try fresh download (but we already tried) */
+        
     }
 
     if (res == CURLE_OK && chunk.data) {
-        /* Save updated meta */
+        
         if (rh.etag[0] || rh.last_modified[0]) {
             char meta_buf[640] = {0};
             snprintf(meta_buf, sizeof(meta_buf), "ETag: %s\nLast-Modified: %s\n",
@@ -275,7 +277,7 @@ char *fetch_packages_json(const char *branch) {
                      rh.last_modified[0] ? rh.last_modified : "");
             if (meta_buf[0]) write_text_file(meta_path, meta_buf);
         }
-        /* Save JSON */
+        
         write_text_file(json_path, chunk.data);
 
         char msg[128];
@@ -292,7 +294,7 @@ char *fetch_packages_json(const char *branch) {
         if (hdrs) curl_slist_free_all(hdrs);
         curl_easy_cleanup(curl);
         curl_global_cleanup();
-        return chunk.data; /* caller frees */
+        return chunk.data; 
     }
 
 try_disk_fallback:;
@@ -312,4 +314,3 @@ try_disk_fallback:;
     curl_global_cleanup();
     return NULL;
 }
-

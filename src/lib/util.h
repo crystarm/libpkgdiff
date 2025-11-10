@@ -3,9 +3,9 @@
 #include <stddef.h>
 #include <jansson.h>
 #include "pkgdiff.h"
-/* Internal shared struct used by curl write callback */
+
 struct MemoryBuffer { char *data; size_t size; };
-/* Internal helpers (not part of public API) */
+
 int visible_len(const char *s);
 void print_tight_box(const char *line);
 void note(const char *msg);
@@ -33,12 +33,12 @@ void print_version_pair_aligned(const char *name, const char *arch,
                                  int wname, int warch, int wcol1, int wcol2);
 
 
-/* XDG-based directories and FS helpers */
-void pkgdiff_get_sources_dir(char *out, size_t out_sz);   /* $XDG_CACHE_HOME/libpkgdiff/sources or ~/.cache/libpkgdiff/sources */
-void pkgdiff_get_results_dir(char *out, size_t out_sz);   /* $XDG_DATA_HOME/libpkgdiff/results or ~/.local/share/libpkgdiff/results */
-/* Create all components of a path (like mkdir -p). Returns 0 on success. */
+
+void pkgdiff_get_sources_dir(char *out, size_t out_sz);   
+void pkgdiff_get_results_dir(char *out, size_t out_sz);   
+
 int ensure_dir_all(const char *path, int mode);
-/* Join dir + '/' + name safely. */
+
 void join_path(char *dst, size_t dst_sz, const char *dir, const char *name);
 
 #endif
