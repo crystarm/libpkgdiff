@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 # Detect container engine (prefer $CONTAINER_ENGINE, then podman, then docker)
 ENGINE="${CONTAINER_ENGINE:-}"
@@ -19,10 +19,12 @@ SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 ROOT_DIR="${SCRIPT_DIR}"
 CONTAINERFILE="${CONTAINERFILE:-${ROOT_DIR}/containers/Containerfile}"
 
-# Image tag (override with IMAGE_TAG if desired)
-IMAGE_TAG="${IMAGE_TAG:-libpkgdiff:alt}"
+# Default local tag to avoid short-name prompts and remote pulls
+IMAGE_TAG="${IMAGE_TAG:-localhost/libpkgdiff:alt}"
 
-# Build
 echo "Using engine: ${ENGINE}"
 echo "Building image: ${IMAGE_TAG} from ${CONTAINERFILE}"
+
+# Build image
 "${ENGINE}" build -t "${IMAGE_TAG}" -f "${CONTAINERFILE}" "${ROOT_DIR}"
+echo "Built: ${IMAGE_TAG}"
