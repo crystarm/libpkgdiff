@@ -1,14 +1,44 @@
-# Simple two-stage build for pkgdiff
-FROM debian:stable AS build
-RUN apt-get update && apt-get install -y --no-install-recommends \ 
-    build-essential pkg-config libcurl4-gnutls-dev libjansson-dev ca-certificates &&     rm -rf /var/lib/apt/lists/*
+# Multi-stage build using ALT Linux as the base image.
+# Stage 1: build
+FROM docker.io/alt:p11 AS build
+
+# Install toolchain and headers
+RUN apt-get update && \
+    apt-get dist-upgrade -y && \
+    apt-get install -y \
+        gcc \
+        make \
+        pkg-config \
+        ca-certificates \
+        curl \
+        libcurl-devel \
+        "pkgconfig(jansson)" && \
+    rm -rf /var/lib/apt/lists/*
+
 WORKDIR /work
-COPY . .
+COPY . /work
+
+# Build
 RUN make
 
-FROM debian:stable
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates &&     rm -rf /var/lib/apt/lists/*
+# Stage 2: runtime
+FROM docker.io/alt:p11
+
+# Runtime deps only
+RUN apt-get update && \
+    apt-get install -y \
+        ca-certificates \
+        libcurl \
+        libjansson4 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Artifacts
 COPY --from=build /work/pkgdiff /usr/bin/pkgdiff
-COPY --from=build /work/libpkgdiff.so /usr/lib/
-ENV LD_LIBRARY_PATH=/usr/lib
-ENTRYPOINT ["pkgdiff"]
+COPY --from=build /work/libpkgdiff.so /usr/lib64/
+
+# Shared libs path
+ENV LD_LIBRARY_PATH=/usr/lib64:/usr/lib
+ENV SSL_CERT_DIR=/etc/ssl/certs
+
+WORKDIR /work
+ENTRYPOINT ["/usr/bin/pkgdiff"]
