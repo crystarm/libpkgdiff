@@ -1,21 +1,23 @@
-cat >> .gitignore <<'EOF'
-
-*.json
-
-# build artefacts
+# Build artifacts
 *.o
 *.so
-compare-cli
+*.a
 pkgdiff
-build/
-dist/
-
-# rpm
-rpmbuild/
+/build/
+/dist/
+/rpmbuild/
 *.rpm
-*.tar
-*.tar.gz
+*.tar*
+*.gz
+*.zip
 
-# containers
-containerignore
-EOF
+# Caches
+*.json
+.cache/
+tmp/
+
+# Editors/OS
+*.swp
+.DS_Store
+.idea/
+.vscode/

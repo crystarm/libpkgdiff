@@ -1,64 +1,58 @@
-# Compiler and flags
-CC       = gcc
-CFLAGS   = -fPIC -Iinclude -Isrc -Wall -Wextra -O2 -fvisibility=hidden
-LDFLAGS  = -shared
+CC ?= gcc
+CFLAGS ?= -O2 -Wall -Wextra -fPIC -fvisibility=hidden
+CFLAGS += -Iinclude -Isrc/lib -Isrc/cli
+# Try pkg-config for cflags too
+CFLAGS += $(shell pkg-config --cflags libcurl jansson 2>/dev/null)
 
-# Targets
-TARGET_LIB = libpkgdiff.so
-TARGET_CLI = pkgdiff
-
-# Sources
-SRC_LIB = src/u.c src/ui.c src/net.c src/cmp.c
-SRC_CLI = src/main.c
-OBJ_LIB = $(SRC_LIB:.c=.o)
-
-# Install prefixes
-PREFIX ?= /usr
-BINDIR ?= $(PREFIX)/bin
-LIBDIR ?= $(PREFIX)/lib
-
-# Auto-switch to lib64 on common 64‑bit arches if LIBDIR wasn't overridden
-UNAME_M := $(shell uname -m)
-ifeq ($(LIBDIR),$(PREFIX)/lib)
-  ifneq (,$(filter x86_64 aarch64 ppc64le s390x,$(UNAME_M)))
-    LIBDIR := $(PREFIX)/lib64
-  endif
+LDLIBS += $(shell pkg-config --libs libcurl jansson 2>/dev/null)
+ifeq ($(strip $(LDLIBS)),)
+LDLIBS += -lcurl -ljansson
 endif
 
-# RPATH so the CLI can find the just-built .so from the build tree
-CLI_RPATH = -Wl,-rpath,'$$ORIGIN'
+LIBSO := libpkgdiff.so
+BIN   := pkgdiff
 
-.PHONY: all clean install rpm
+LIBSRC := \
+    src/lib/util.c \
+    src/lib/net.c  \
+    src/lib/cmp.c
 
-all: $(TARGET_LIB) $(TARGET_CLI)
+CLISRC := \
+    src/cli/main.c \
+    src/cli/ui.c
 
-$(TARGET_LIB): $(OBJ_LIB)
-	$(CC) $(LDFLAGS) -o $@ $(OBJ_LIB) -lcurl -ljansson
+LIBOBJ := $(LIBSRC:.c=.o)
+CLIOBJ := $(CLISRC:.c=.o)
 
-src/%.o: src/%.c
-	$(CC) $(CFLAGS) -c $< -o $@
+.PHONY: all clean rpm install
 
-$(TARGET_CLI): $(SRC_CLI) $(TARGET_LIB)
-	$(CC) -Iinclude $(CLI_RPATH) $(SRC_CLI) -L. -lpkgdiff -lcurl -ljansson -o $@
+all: $(LIBSO) $(BIN)
 
-install:
-	install -d "$(DESTDIR)$(BINDIR)" "$(DESTDIR)$(LIBDIR)"
-	install -m 0755 "$(TARGET_CLI)" "$(DESTDIR)$(BINDIR)/$(TARGET_CLI)"
-	install -m 0644 "$(TARGET_LIB)" "$(DESTDIR)$(LIBDIR)/$(TARGET_LIB)"
-	@# Run ldconfig only when installing to the real root (not during RPM build with DESTDIR)
-	@if [ -z "$(DESTDIR)" ]; then echo "Running ldconfig"; ldconfig; fi
+
+# Ensure exported symbols are visible from lib by defining BUILDING_PKGDIFF
+src/lib/%.o: src/lib/%.c
+	$(CC) $(CFLAGS) -DBUILDING_PKGDIFF -c -o $@ $<
+
+$(LIBSO): $(LIBOBJ)
+	$(CC) -shared -o $@ $(LIBOBJ)
+
+$(BIN): $(CLIOBJ) $(LIBSO)
+	$(CC) -o $@ $(CLIOBJ) -L. -Wl,--no-as-needed -lpkgdiff -Wl,--as-needed $(LDLIBS) -Wl,-rpath,'$$ORIGIN'
 
 clean:
-	rm -f src/*.o "$(TARGET_LIB)" "$(TARGET_CLI)"
+	rm -f $(LIBOBJ) $(CLIOBJ) $(LIBSO) $(BIN)
 
-# Build RPM from the current Git HEAD using rpmdevtools
-rpm:
-	@command -v rpmbuild >/dev/null || { echo "rpmbuild not found. Install: rpm-build rpmdevtools"; exit 1; }
-	@command -v rpmdev-setuptree >/dev/null || { echo "rpmdevtools not found. Install: rpmdevtools"; exit 1; }
-	rpmdev-setuptree
-	@VER=$$(git describe --tags --always 2>/dev/null | sed 's/^v//' || echo 0.1.0); \
-	mkdir -p $$HOME/rpmbuild/SOURCES; \
-	git archive --format=tar.gz --prefix=libpkgdiff-$$VER/ -o $$HOME/rpmbuild/SOURCES/libpkgdiff-$$VER.tar.gz HEAD; \
-	install -Dm0644 packaging/libpkgdiff.spec $$HOME/rpmbuild/SPECS/libpkgdiff.spec; \
-	echo "Building RPM with version $$VER"; \
-	rpmbuild -ba $$HOME/rpmbuild/SPECS/libpkgdiff.spec
+# Optional RPM build; requires packaging/libpkgdiff.spec
+rpm: all
+	@if [ ! -f packaging/libpkgdiff.spec ]; then \
+	  echo "packaging/libpkgdiff.spec not found"; exit 1; \
+	fi
+	rpmbuild --define "_sourcedir $(PWD)" \
+	         --define "_specdir $(PWD)/packaging" \
+	         --define "_builddir $(PWD)/build" \
+	         --define "_srcrpmdir $(PWD)/dist" \
+	         --define "_rpmdir $(PWD)/dist" \
+	         -ba packaging/libpkgdiff.spec
+
+install:
+	@echo "Add your 'install' logic or use packaging/"

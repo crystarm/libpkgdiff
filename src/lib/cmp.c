@@ -1,15 +1,21 @@
 #include <stdio.h>
+#include "net.h"
+#include "ansi.h"
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 #include <curl/curl.h>
 #include <jansson.h>
 #include "pkgdiff.h"
-#include "u.h"
+#include "util.h"
+
+#ifndef BUILDING_PKGDIFF
+#define BUILDING_PKGDIFF 1
+#endif
 
 
 
-void pkgdiff_unique_pkgs(const char *branch1, const char *branch2, const char *arch_filter) {
+PKGDIFF_API void pkgdiff_unique_pkgs(const char *branch1, const char *branch2, const char *arch_filter) {
     if (arch_filter && *arch_filter) {
         char buf[256];
         snprintf(buf, sizeof(buf), "Analyzing only architecture: %s", arch_filter);
@@ -131,31 +137,31 @@ size_t len1 = json_array_size(packages1), filt1 = 0;for (size_t i = 0; i < len1;
 
         char line[512] = {0};
         printf("Enter two filenames separated by a space (defaults: %s and %s): ", file1, file2);if (fgets(line, sizeof(line), stdin)) {
-            // tokenize by whitespace (simple)
+            
             char *p = line;
-            // trim trailing newline
+            
             for (size_t i = 0; line[i]; ++i) { if (line[i]=='\n' || line[i]=='\r') { line[i]='\0'; break; } }
-            // skip leading spaces
+            
             while (*p==' ' || *p=='\t') ++p;
             if (*p) {
-                // first token
+                
                 char *t1 = p;
                 while (*p && *p!=' ' && *p!='\t') ++p;
                 if (*p) { *p++ = '\0'; }
-                if (t1[0]) strncpy(file1, t1, sizeof(file1)-1);
+                if (t1[0]) snprintf(file1, sizeof(file1), "%s", t1);
 
-                // skip spaces to second token (optional)
+                
                 while (*p==' ' || *p=='\t') ++p;
                 if (*p) {
                     char *t2 = p;
                     while (*p && *p!=' ' && *p!='\t') ++p;
                     *p = '\0';
-                    if (t2[0]) strncpy(file2, t2, sizeof(file2)-1);
+                    if (t2[0]) snprintf(file2, sizeof(file2), "%s", t2);
                 }
             }
         }
 
-        /* Resolve default save directory for results */
+        
             char results_dir[512]; pkgdiff_get_results_dir(results_dir, sizeof(results_dir));
             ensure_dir_all(results_dir, 0700);
             char f1_final[768]; char f2_final[768];
@@ -185,7 +191,7 @@ json_decref(only1_preview);
 
 
 
-/* ===== New feature: common packages across two branches with version preview & JSON save ===== */
+
 
 
 
@@ -308,7 +314,7 @@ note("Computing common set...");
     }
 
     
-    /* Build filtered set over the FULL common set, not just the preview */
+    
     json_t *matches = json_array();
     json_t *preview_filtered = json_array();
     size_t match_count = 0;
@@ -366,7 +372,7 @@ int do_save = 0;
         if (fgets(ans, sizeof(ans), stdin) && (ans[0]=='y' || ans[0]=='Y')) {
             
 
-/* Build default file name depending on filter */
+
 char default_name[256];
 const char *prefix = (filter==PKGDIFF_FILTER_ALL) ? "" : (filter==PKGDIFF_FILTER_DIFFER ? "diff-" : "same-");
 if (prefix[0] == 0) {
@@ -385,7 +391,7 @@ do_save = 1;
         }
     }
 
-    /* Normalize save path: if it's just a filename (no '/'), place into results dir */
+    
     if (do_save) {
         if (!strchr(pathbuf, '/')) {
             char results_dir[512]; pkgdiff_get_results_dir(results_dir, sizeof(results_dir));

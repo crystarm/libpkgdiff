@@ -1,7 +1,9 @@
 #include <stdio.h>
+#include "ui.h"
+#include "ansi.h"
 #include <string.h>
 #include "pkgdiff.h"
-#include "u.h"
+#include "util.h"
 
 #include <stdlib.h>
 
