@@ -1,7 +1,5 @@
 .git
-rpmbuild
 *.rpm
 *.o
 *.so
-build
 dist
