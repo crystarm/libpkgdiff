@@ -1,5 +1,5 @@
 # libpkgdiff — ALT Package Comparator
-CLI: **`pkgdiff`** · Library: **`libpkgdiff.so`** · License: MIT
+CLI: **`pkgdiff`** · Library: **`libpkgdiff.so`** · License: GNU GPL v3.0
 
 > **CLI name:** the build now produces a binary named `pkgdiff` (previously `compare-cli`). Update your scripts if you used the old name.
 
