@@ -207,7 +207,7 @@ The entrypoint is `pkgdiff`; logs and cache stay in the mounted workdir.
 
 ## License
 
-MIT — see `LICENSE`.
+GNU GPL v3.0 — see `LICENSE`.
 
 ---
 
