@@ -5,7 +5,7 @@ Version:        1.1
 Release:        alt1
 Summary:        ALT Package Comparator (CLI with a bundled private library)
 Group:          System/Utilities
-License:        MIT
+License:        GPLv2
 URL:            https://github.com/crystarm/libpkgdiff
 Source0:        %{name}-%{version}.tar.gz
 
